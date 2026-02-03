@@ -1,0 +1,267 @@
+{
+  "name": "Financy - AI Asset Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analyze-assets",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "analyze-assets"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst userId = input.body?.userId || input.userId || null;\nreturn [{ json: { userId } }];"
+      },
+      "id": "extract-userid",
+      "name": "Extract UserId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:3001/api/internal/trading/assets/{{ $json.userId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-key",
+              "value": "financy-internal-key"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-assets",
+      "name": "Fetch User Assets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst assets = items.map(item => item.json);\nconst activeAssets = assets.filter(a => a.status === 'watching' || a.status === 'bought');\nif (activeAssets.length === 0) {\n  return [{ json: { skip: true, count: 0 } }];\n}\nreturn [{ json: { assets: activeAssets, count: activeAssets.length } }];"
+      },
+      "id": "filter-assets",
+      "name": "Filter Active",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-assets",
+      "name": "Has Assets?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:3001/api/internal/trading/analyze/{{ $('Extract UserId').first().json.userId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-key",
+              "value": "financy-internal-key"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "analyze-backend",
+      "name": "Analyze via Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst userId = $('Extract UserId').first().json.userId;\n\nconsole.log('🔍 Backend response:', JSON.stringify(resp, null, 2));\n\nif (!resp.success || !resp.suggestions) {\n  console.log('⚠️ No suggestions in response');\n  return [{ json: { sent: 0, signals: [], suggestions: [], totalAnalyzed: 0 } }];\n}\n\nconsole.log('✅ Suggestions received:', resp.suggestions.length);\nresp.suggestions.forEach(s => console.log(`  - ${s.symbol}: ${s.action}`));\n\nconst apiUrl = 'http://host.docker.internal:3001';\nlet sent = 0;\nconst sentSignals = [];\n\n// Only send BUY/SELL signals to database (not HOLD)\nconst actionableSignals = resp.suggestions.filter(s => s.action === 'BUY' || s.action === 'SELL');\n\nfor (const sig of actionableSignals) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${apiUrl}/api/internal/trading/signals`,\n      headers: { 'Content-Type': 'application/json', 'x-internal-key': 'financy-internal-key' },\n      body: { \n        userId, \n        assetId: sig.assetId, \n        action: sig.action, \n        reason: sig.reason, \n        confidence: sig.confidence, \n        price: sig.currentPrice, \n        criteria: { rulesBased: true } \n      },\n      json: true\n    });\n    sent++;\n    sentSignals.push(sig);\n  } catch (e) { \n    console.log('Error sending signal:', e.message); \n  }\n}\n\n// Return ALL suggestions (including HOLD) for the UI popup\nconst output = { \n  sent, \n  signals: sentSignals, \n  suggestions: resp.suggestions,  // ALL actions: BUY, SELL, HOLD\n  totalAnalyzed: resp.assetsAnalyzed \n};\n\nconsole.log('📤 Returning to frontend:', JSON.stringify(output, null, 2));\n\nreturn [{ json: output }];"
+      },
+      "id": "send-signals",
+      "name": "Send Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, signalsGenerated: $json.sent, assetsAnalyzed: $json.totalAnalyzed || 0, suggestions: $json.suggestions || [], message: ($json.totalAnalyzed || 0) + ' asset analizzati, ' + $json.sent + ' segnali inviati' }) }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1552,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, signalsSent: 0, message: 'No active assets' }) }}",
+        "options": {}
+      },
+      "id": "respond-no-assets",
+      "name": "Respond No Assets",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract UserId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract UserId": {
+      "main": [
+        [
+          {
+            "node": "Fetch User Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch User Assets": {
+      "main": [
+        [
+          {
+            "node": "Filter Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Active": {
+      "main": [
+        [
+          {
+            "node": "Has Assets?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Assets?": {
+      "main": [
+        [
+          {
+            "node": "Analyze via Backend",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond No Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze via Backend": {
+      "main": [
+        [
+          {
+            "node": "Send Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Signals": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7993b88a-382d-4727-8ce3-bbf04182aa34",
+  "meta": {
+    "instanceId": "e1a09f406429ab5b016baecc90e64a896f2b758f797fb2fd34980cd5a482bcd8"
+  },
+  "id": "uoOQe4jlh89ye6J8",
+  "tags": []
+}

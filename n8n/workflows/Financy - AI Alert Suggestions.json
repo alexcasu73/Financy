@@ -1,0 +1,338 @@
+{
+  "name": "Financy - AI Alert Suggestions",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alert-suggestions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "financy-alert-suggestions"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_URL }}/api/settings/alert-threshold",
+        "options": {}
+      },
+      "id": "fetch-threshold",
+      "name": "Fetch Threshold",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_URL }}/api/assets?limit=100",
+        "options": {}
+      },
+      "id": "fetch-assets",
+      "name": "Fetch All Assets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get threshold from settings\nconst thresholdData = $('Fetch Threshold').first().json;\nconst threshold = thresholdData.threshold || 3;\n\n// Filter assets with significant price movement\nconst assets = $input.first().json;\nconst assetList = Array.isArray(assets) ? assets : (assets.data || assets.assets || []);\n\nconst interesting = assetList.filter(a => {\n  const change = Math.abs(a.changePercent || 0);\n  return change > threshold;\n});\n\n// If no interesting assets, return at least one item to continue the flow\nif (interesting.length === 0) {\n  return [{ json: { noAssets: true, message: `No assets with >${threshold}% change` } }];\n}\n\n// Return each interesting asset as a separate item\nreturn interesting.map(asset => ({ json: asset }));"
+      },
+      "id": "filter-interesting",
+      "name": "Filter Interesting Assets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-assets",
+              "leftValue": "={{ $json.noAssets }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-assets",
+      "name": "Has Assets?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all filtered assets and prepare Claude API request\nconst items = $input.all();\n\nconst aggregated = items.map(item => {\n  const asset = item.json;\n  return {\n    id: asset.id,\n    symbol: asset.symbol,\n    name: asset.name,\n    type: asset.type,\n    currentPrice: asset.currentPrice,\n    changePercent: asset.changePercent,\n    volume: asset.volume,\n    signals: []\n  };\n}).filter(a => a.id);\n\nconst prompt = `You are a financial alert advisor. Analyze these tracked assets and suggest alerts the user should create.\n\nAsset data:\n${JSON.stringify(aggregated, null, 2)}\n\nFor each asset where you see a good opportunity for an alert, return a JSON object. Consider:\n- Assets with big price moves may reverse (suggest price_above/price_below)\n- High volatility assets may benefit from percent_change alerts\n- Technical signals can indicate upcoming moves\n\nReturn ONLY a valid JSON array (no markdown, no explanation) with objects containing:\n- assetId (string): the asset id\n- symbol (string): ticker symbol\n- name (string): asset name\n- type (string): one of price_above, price_below, percent_change, volume_spike\n- threshold (number): the price or percentage threshold\n- reason (string): 1-2 sentence explanation in ITALIAN of why this alert is useful\n- reasonOriginal (string): the same explanation in ENGLISH\n- confidence (string): high, medium, or low\n\nReturn between 0 and 5 suggestions. If no good suggestions, return an empty array [].`;\n\nreturn [{ json: { assets: aggregated, claudeRequest: { model: 'claude-sonnet-4-20250514', max_tokens: 2048, messages: [{ role: 'user', content: prompt }] } } }];"
+      },
+      "id": "aggregate-data",
+      "name": "Aggregate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claudeRequest) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "call-claude",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response and extract suggestions array\nconst response = $input.first().json;\nlet text = '';\n\n// Claude API returns content as an array of blocks\nif (response.content && Array.isArray(response.content)) {\n  text = response.content\n    .filter(block => block.type === 'text')\n    .map(block => block.text)\n    .join('');\n} else if (typeof response === 'string') {\n  text = response;\n}\n\n// Try to parse the JSON array from the response\nlet suggestions = [];\ntry {\n  // Remove any markdown code fences if present\n  const cleaned = text.replace(/```json?\\n?/g, '').replace(/```\\n?/g, '').trim();\n  suggestions = JSON.parse(cleaned);\n} catch (e) {\n  // Try to find JSON array in the text\n  const match = text.match(/\\[\\s*\\{[\\s\\S]*\\}\\s*\\]/);\n  if (match) {\n    suggestions = JSON.parse(match[0]);\n  }\n}\n\nif (!Array.isArray(suggestions)) {\n  suggestions = [];\n}\n\n// Get original assets to validate IDs\nconst aggregatedData = $('Aggregate Data').first().json;\nconst originalAssets = aggregatedData.assets || [];\nconst assetBySymbol = {};\noriginalAssets.forEach(a => { assetBySymbol[a.symbol] = a; });\n\n// Validate and clean suggestions\nconst validTypes = ['price_above', 'price_below', 'percent_change', 'volume_spike'];\nconst validConfidence = ['high', 'medium', 'low'];\n\nsuggestions = suggestions.filter(s =>\n  s.symbol && s.name && s.type && s.threshold != null && s.reason &&\n  validTypes.includes(s.type) && validConfidence.includes(s.confidence || 'medium') &&\n  assetBySymbol[s.symbol] // Only keep if symbol exists in our data\n).map(s => {\n  // Use the correct assetId from original data (Claude might have typos)\n  const originalAsset = assetBySymbol[s.symbol];\n  return {\n    assetId: originalAsset.id, // Use CORRECT id from original data\n    symbol: s.symbol,\n    name: originalAsset.name || s.name,\n    type: s.type,\n    threshold: Number(s.threshold),\n    reason: s.reason,\n    reasonOriginal: s.reasonOriginal || null,\n    confidence: s.confidence || 'medium'\n  };\n});\n\nreturn [{ json: { suggestions } }];"
+      },
+      "id": "parse-suggestions",
+      "name": "Parse Suggestions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_URL }}/api/alert-suggestions/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ suggestions: $json.suggestions }) }}",
+        "options": {}
+      },
+      "id": "save-suggestions",
+      "name": "Save Suggestions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, created: $json.created || 0, suggestions: $('Parse Suggestions').first().json.suggestions.length }) }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1984,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, created: 0, message: 'No assets with significant price changes found' }) }}",
+        "options": {}
+      },
+      "id": "respond-no-assets",
+      "name": "Respond No Assets",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Threshold": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Assets": {
+      "main": [
+        [
+          {
+            "node": "Filter Interesting Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Interesting Assets": {
+      "main": [
+        [
+          {
+            "node": "Has Assets?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Assets?": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond No Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Data": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse Suggestions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Suggestions": {
+      "main": [
+        [
+          {
+            "node": "Save Suggestions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Suggestions": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8618b1bb-26b8-424e-9226-a11fb31b2e53",
+  "meta": {
+    "instanceId": "e1a09f406429ab5b016baecc90e64a896f2b758f797fb2fd34980cd5a482bcd8"
+  },
+  "id": "vjUa5UI9xgB2D1rk",
+  "tags": [
+    {
+      "updatedAt": "2026-01-28T17:02:19.380Z",
+      "createdAt": "2026-01-28T17:02:19.380Z",
+      "id": "Kh9so8KHygHAMmbD",
+      "name": "financy"
+    },
+    {
+      "updatedAt": "2026-01-28T17:02:19.381Z",
+      "createdAt": "2026-01-28T17:02:19.381Z",
+      "id": "fcJy3LFuetdOWOuz",
+      "name": "ai"
+    }
+  ]
+}

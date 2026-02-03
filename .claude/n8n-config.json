@@ -1,0 +1,7 @@
+{
+  "apiKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwNDdiNWViMC1jZDUwLTRlNGMtYmI0MC05NmMwYjhjZjYyYmEiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzY5ODUyODIyLCJleHAiOjE3NzI0MDYwMDB9.scuMn3-xW_nq1gUDGoaB1HHzGze4WqsKJ9NP4FyIEA4",
+  "baseUrl": "http://localhost:5678",
+  "workflows": {
+    "trading-suggestions": "bTsr4o9y5SdBoSKe"
+  }
+}

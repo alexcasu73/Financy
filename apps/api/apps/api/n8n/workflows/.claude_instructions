@@ -1,0 +1,11 @@
+Per debuggare il workflow:
+1. Apri http://localhost:5678 nel browser
+2. Vai su "Executions" nel menu laterale
+3. Trova l'ultima esecuzione di "Trading Suggestions"
+4. Clicca per vedere i dettagli di ogni nodo
+5. Controlla cosa arriva a "Parse Claude Response" e cosa esce
+6. Verifica se "Prepare DB Inserts" riceve suggerimenti
+
+Se Claude non genera suggerimenti, controlla:
+- Il nodo "Score & Filter Candidates" - quanti candidati genera?
+- Il nodo "Claude Analysis" - cosa risponde Claude?

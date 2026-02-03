@@ -1,0 +1,604 @@
+{
+  "updatedAt": "2026-01-31T13:46:02.000Z",
+  "createdAt": "2026-01-31T09:45:04.677Z",
+  "name": "Trading Suggestions",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trading-suggestions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "trading-suggestions"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst userId = input.body?.userId || input.userId || null;\nreturn [{ json: { userId } }];"
+      },
+      "id": "extract-userid",
+      "name": "Extract UserId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT tp.*, array_agg(DISTINCT ta.\"asset_id\") FILTER (WHERE ta.status IN ('watching', 'bought')) as \"existingAssetIds\"\nFROM \"trading_profiles\" tp\nLEFT JOIN \"trading_assets\" ta ON ta.\"profile_id\" = tp.id\nWHERE tp.\"user_id\" = '{{ $json.userId }}'\nGROUP BY tp.id",
+        "options": {}
+      },
+      "id": "get-profile",
+      "name": "Get Trading Profile",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "4TJGRUqJn4Ecu5op",
+          "name": "Financy DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT DISTINCT a.symbol\nFROM \"trading_suggestions\" ts\nJOIN \"assets\" a ON a.id = ts.\"asset_id\"\nWHERE ts.\"profile_id\" = '{{ $json.id }}'\nAND (ts.status = 'pending' OR ts.status = 'accepted' \n  OR (ts.status = 'dismissed' AND ts.\"dismissed_at\" > NOW() - INTERVAL '7 days'))",
+        "options": {}
+      },
+      "id": "get-excluded",
+      "name": "Get Excluded Symbols",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "4TJGRUqJn4Ecu5op",
+          "name": "Financy DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=most_actives&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-trending",
+      "name": "Yahoo: Trending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=day_gainers&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-gainers",
+      "name": "Yahoo: Gainers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=day_losers&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-losers",
+      "name": "Yahoo: Losers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=most_actives&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-active",
+      "name": "Yahoo: Most Active",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=undervalued_large_caps&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-undervalued",
+      "name": "Yahoo: Undervalued",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=growth_technology_stocks&count=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yahoo-growth",
+      "name": "Yahoo: Growth Tech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get profile and excluded symbols from earlier nodes\nconst profileNode = $('Get Trading Profile').first().json;\n\n// Safely get excluded symbols\nlet excludedSymbols = new Set();\ntry {\n  const excludedNode = $('Get Excluded Symbols').all();\n  if (excludedNode && excludedNode.length > 0) {\n    excludedSymbols = new Set(excludedNode.map(n => n.json.symbol));\n  }\n} catch (e) {\n  // If node not available, use empty set\n  excludedSymbols = new Set();\n}\n\n// Add existing asset IDs to excluded\nif (profileNode.existing_asset_ids) {\n  // We'd need to query these, for now skip\n}\n\nconst profile = {\n  id: profileNode.id,\n  horizon: profileNode.horizon || 'medium',\n  risk_tolerance: profileNode.risk_tolerance || 'moderate',\n  trading_style: profileNode.trading_style || 'swing',\n  preferred_sectors: profileNode.preferred_sectors || []\n};\n\n// Scoring tables\nconst horizonScores = {\n  short: { trending: 4, gainers: 5, losers: 4, active: 5, undervalued: 1, growth: 2, volatilityBonus: 3 },\n  medium: { trending: 3, gainers: 3, losers: 3, active: 3, undervalued: 3, growth: 3, volatilityBonus: 1 },\n  long: { trending: 1, gainers: 1, losers: 2, active: 1, undervalued: 5, growth: 4, volatilityBonus: 0 }\n};\n\nconst riskMultipliers = {\n  conservative: { volatility: 0.3, losers: 0.5, undervalued: 1.5 },\n  moderate: { volatility: 1, losers: 1, undervalued: 1 },\n  aggressive: { volatility: 2, losers: 1.5, undervalued: 0.7 }\n};\n\nconst styleModifiers = {\n  momentum: { trending: 1.3, gainers: 1.5, losers: 0.8, undervalued: 0.5, growth: 1 },\n  value: { trending: 0.5, gainers: 0.5, losers: 1.3, undervalued: 2, growth: 0.8 },\n  swing: { trending: 1, gainers: 1, losers: 1.5, undervalued: 1, growth: 1 },\n  scalping: { trending: 1.5, gainers: 1.5, losers: 1, undervalued: 0.3, growth: 0.5 }\n};\n\nconst hScores = horizonScores[profile.horizon];\nconst rMults = riskMultipliers[profile.risk_tolerance];\nconst sMods = styleModifiers[profile.trading_style];\n\n// Get volatility bonus\nfunction getVolatilityBonus(changePercent) {\n  const abs = Math.abs(changePercent);\n  if (abs >= 10) return hScores.volatilityBonus * rMults.volatility * 3;\n  if (abs >= 5) return hScores.volatilityBonus * rMults.volatility * 2;\n  if (abs >= 3) return hScores.volatilityBonus * rMults.volatility;\n  return 0;\n}\n\n// Parse Yahoo screener response\nfunction parseYahooQuotes(data) {\n  const quotes = data?.finance?.result?.[0]?.quotes || [];\n  return quotes\n    .filter(q => q.regularMarketPrice && q.regularMarketPrice >= 1)\n    .map(q => ({\n      symbol: q.symbol,\n      name: q.longName || q.shortName || q.symbol,\n      price: q.regularMarketPrice || 0,\n      changePercent: q.regularMarketChangePercent || 0,\n      volume: q.regularMarketVolume || 0,\n      sector: q.sector || undefined\n    }));\n}\n\n// Collect candidates from all Yahoo sources\nconst candidateMap = new Map();\n\nfunction addCandidates(stocks, source, baseScoreKey) {\n  const baseScore = hScores[baseScoreKey] * sMods[baseScoreKey] * (source === 'losers' ? rMults.losers : 1);\n\n  for (const stock of stocks) {\n    if (excludedSymbols.has(stock.symbol)) continue;\n    if (!stock.price || stock.price < 1) continue;\n\n    let score = baseScore + getVolatilityBonus(stock.changePercent);\n\n    // Extra bonus for aggressive + short-term high movers\n    if (profile.horizon === 'short' && profile.risk_tolerance === 'aggressive' && Math.abs(stock.changePercent) >= 5) {\n      score += 3;\n    }\n\n    const existing = candidateMap.get(stock.symbol);\n    if (existing) {\n      existing.score += score;\n      existing.sources.push(source);\n    } else {\n      candidateMap.set(stock.symbol, { ...stock, sources: [source], score });\n    }\n  }\n}\n\n// Safely get data from each Yahoo source\nlet trending = [];\nlet gainers = [];\nlet losers = [];\nlet active = [];\nlet undervalued = [];\nlet growth = [];\n\ntry {\n  const trendingNode = $('Yahoo: Trending').first();\n  if (trendingNode && trendingNode.json) {\n    trending = parseYahooQuotes(trendingNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Trending not available');\n}\n\ntry {\n  const gainersNode = $('Yahoo: Gainers').first();\n  if (gainersNode && gainersNode.json) {\n    gainers = parseYahooQuotes(gainersNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Gainers not available');\n}\n\ntry {\n  const losersNode = $('Yahoo: Losers').first();\n  if (losersNode && losersNode.json) {\n    losers = parseYahooQuotes(losersNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Losers not available');\n}\n\ntry {\n  const activeNode = $('Yahoo: Most Active').first();\n  if (activeNode && activeNode.json) {\n    active = parseYahooQuotes(activeNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Most Active not available');\n}\n\ntry {\n  const undervaluedNode = $('Yahoo: Undervalued').first();\n  if (undervaluedNode && undervaluedNode.json) {\n    undervalued = parseYahooQuotes(undervaluedNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Undervalued not available');\n}\n\ntry {\n  const growthNode = $('Yahoo: Growth Tech').first();\n  if (growthNode && growthNode.json) {\n    growth = parseYahooQuotes(growthNode.json);\n  }\n} catch (e) {\n  console.log('Yahoo: Growth Tech not available');\n}\n\n// Add candidates from available sources\naddCandidates(trending, 'trending', 'trending');\naddCandidates(gainers, 'gainers', 'gainers');\naddCandidates(losers, 'losers', 'losers');\naddCandidates(active, 'active', 'active');\naddCandidates(undervalued, 'undervalued', 'undervalued');\naddCandidates(growth, 'growth', 'growth');\n\n// Sort by score and take top 10\nconst topCandidates = Array.from(candidateMap.values())\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 10);\n\nreturn [{ json: { profileId: profile.id, candidates: topCandidates } }];\n"
+      },
+      "id": "score-candidates",
+      "name": "Score & Filter Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all inputs (remove duplicates)\nconst allInputs = $input.all();\nconst candidatesMap = new Map();\nlet profileId = null;\n\nfor (const input of allInputs) {\n  if (!profileId) profileId = input.json.profileId;\n  const candidates = input.json.candidates || [];\n\n  for (const c of candidates) {\n    if (!candidatesMap.has(c.symbol)) {\n      candidatesMap.set(c.symbol, c);\n    }\n  }\n}\n\nconst allCandidates = Array.from(candidatesMap.values());\n\nif (!allCandidates || allCandidates.length === 0) {\n  return [{ json: { profileId, candidatesText: '', profileInfo: {} } }];\n}\n\n// Get profile data from earlier node\nconst profileData = $('Get Trading Profile').first().json;\nconst profileInfo = {\n  horizon: profileData.horizon || 'medium',\n  riskTolerance: profileData.risk_tolerance || 'moderate',\n  tradingStyle: profileData.trading_style || 'swing'\n};\n\n// Format candidates for Claude\nconst candidatesText = allCandidates.map((c, i) =>\n  `${i+1}. ${c.symbol} - ${c.name}\\n   Price: $${c.price.toFixed(2)} | Change: ${c.changePercent.toFixed(2)}%\\n   Volume: ${c.volume.toLocaleString()} | Sector: ${c.sector || 'N/A'}\\n   Sources: ${c.sources.join(', ')} | Score: ${c.score.toFixed(1)}`\n).join('\\n\\n');\n\nreturn [{ json: { profileId, candidatesText, profileInfo } }];"
+      },
+      "id": "format-for-claude",
+      "name": "Format for Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'claude-sonnet-4-5-20250929',\n  max_tokens: 2000,\n  temperature: 0.7,\n  messages: [{\n    role: 'user',\n    content: 'Analyze these top trading candidates and provide 3-5 actionable trading suggestions that STRICTLY match the user trading profile.\\n\\nUSER TRADING PROFILE:\\n- Investment Horizon: ' + $json.profileInfo.horizon + ' (short=days, medium=weeks, long=months)\\n- Risk Tolerance: ' + $json.profileInfo.riskTolerance + '\\n- Trading Style: ' + $json.profileInfo.tradingStyle + '\\n\\nCandidates:\\n' + $json.candidatesText + '\\n\\nIMPORTANT RULES:\\n- Timeframe MUST match the user horizon: short=days, medium=weeks, long=months\\n- Risk level must align with user risk tolerance\\n- Trading style should influence the type of opportunities suggested\\n- Only suggest assets that fit the user profile\\n\\nFor each suggestion, provide:\\n1. Symbol and company name\\n2. Recommendation (BUY/WATCH)\\n3. Reasoning (2-3 sentences explaining why it fits the user profile)\\n4. Expected profit target (%)\\n5. Risk level (low/medium/high)\\n6. Timeframe (MUST be days/weeks/months matching user horizon)\\n7. Confidence (high/medium/low)\\n\\nFormat your response as JSON array:\\n[\\n  {\\n    \"symbol\": \"AAPL\",\\n    \"name\": \"Apple Inc\",\\n    \"recommendation\": \"BUY\",\\n    \"reason\": \"Strong momentum with...\",\\n    \"expectedProfit\": 8,\\n    \"riskLevel\": \"medium\",\\n    \"timeframe\": \"weeks\",\\n    \"confidence\": \"high\"\\n  }\\n]'\n  }]\n}) }}",
+        "options": {}
+      },
+      "id": "claude-analysis",
+      "name": "Claude Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get profileId from Format for Claude node (not from current input)\nconst formatData = $('Format for Claude').first().json;\nconst profileId = formatData.profileId;\nconst claudeResponse = $('Claude Analysis').first().json.content[0].text;\n\ntry {\n  // Extract JSON from markdown code block if present\n  let jsonText = claudeResponse.trim();\n\n  // Remove markdown code block markers\n  if (jsonText.startsWith('```json')) {\n    jsonText = jsonText.replace(/^```json\\s*/, '').replace(/```$/, '').trim();\n  } else if (jsonText.startsWith('```')) {\n    jsonText = jsonText.replace(/^```\\s*/, '').replace(/```$/, '').trim();\n  }\n\n  const suggestions = JSON.parse(jsonText);\n  return [{ json: { profileId, suggestions } }];\n} catch (e) {\n  // If Claude didn't return valid JSON, return empty\n  console.error('Failed to parse Claude response:', e.message);\n  return [{ json: { profileId, suggestions: [] } }];\n}"
+      },
+      "id": "parse-claude",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst suggestions = data.suggestions;\n\nif (!suggestions || suggestions.length === 0) {\n  return [{ json: { success: true, count: 0, message: 'No suggestions generated' } }];\n}\n\n// We'll insert each suggestion\nconst items = [];\nfor (const sugg of suggestions) {\n  items.push({\n    json: {\n      profileId: data.profileId,\n      symbol: sugg.symbol,\n      name: sugg.name,\n      reason: sugg.reason,\n      confidence: sugg.confidence,\n      expectedProfit: sugg.expectedProfit,\n      riskLevel: sugg.riskLevel,\n      timeframe: sugg.timeframe\n    }\n  });\n}\n\nreturn items;"
+      },
+      "id": "prepare-insert",
+      "name": "Prepare DB Inserts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO \"trading_suggestions\" (id, \"profile_id\", \"asset_id\", reason, confidence, \"expected_profit\", \"risk_level\", timeframe, status, criteria)\nSELECT\n  'c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24),\n  '{{ $json.profileId }}',\n  a.id,\n  COALESCE('{{ $json.reason }}', 'N/A'),\n  COALESCE('{{ $json.confidence }}', 'medium'),\n  COALESCE(NULLIF('{{ $json.expectedProfit }}', ''), '0')::numeric,\n  COALESCE('{{ $json.riskLevel }}', 'medium'),\n  COALESCE('{{ $json.timeframe }}', 'medium'),\n  'pending',\n  '{}'::jsonb\nFROM \"assets\" a\nWHERE a.symbol = '{{ $json.symbol }}'\nLIMIT 1\nON CONFLICT DO NOTHING\nRETURNING id",
+        "options": {}
+      },
+      "id": "insert-suggestion",
+      "name": "Insert Suggestion",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2200,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "4TJGRUqJn4Ecu5op",
+          "name": "Financy DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const inserted = $input.all().filter(i => i.json.id);\nconst userId = $('Extract UserId').first().json.userId;\nreturn [{ json: { success: true, count: inserted.length, message: `Generated ${inserted.length} suggestions`, userId: userId } }];"
+      },
+      "id": "final-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:3001/api/internal/trading/suggestions/notify/{{ $json.userId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-key",
+              "value": "financy-internal-key"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}"
+      },
+      "id": "send-notification",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2530,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract UserId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract UserId": {
+      "main": [
+        [
+          {
+            "node": "Get Trading Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Trading Profile": {
+      "main": [
+        [
+          {
+            "node": "Get Excluded Symbols",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Trending",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Gainers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Losers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Most Active",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Undervalued",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo: Growth Tech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Excluded Symbols": {
+      "main": [
+        []
+      ]
+    },
+    "Yahoo: Trending": {
+      "main": [
+        [
+          {
+            "node": "Score & Filter Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Yahoo: Gainers": {
+      "main": [
+        []
+      ]
+    },
+    "Yahoo: Losers": {
+      "main": [
+        []
+      ]
+    },
+    "Yahoo: Most Active": {
+      "main": [
+        []
+      ]
+    },
+    "Yahoo: Undervalued": {
+      "main": [
+        []
+      ]
+    },
+    "Yahoo: Growth Tech": {
+      "main": [
+        []
+      ]
+    },
+    "Score & Filter Candidates": {
+      "main": [
+        [
+          {
+            "node": "Format for Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare DB Inserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DB Inserts": {
+      "main": [
+        [
+          {
+            "node": "Insert Suggestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Suggestion": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "activeVersionId": "75484397-966f-44aa-ae59-c572b44c3f14",
+  "versionCounter": 54,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-01-31T09:45:04.679Z",
+      "createdAt": "2026-01-31T09:45:04.679Z",
+      "role": "workflow:owner",
+      "workflowId": "ITZBlxhy6zyrk4Ow",
+      "projectId": "Gsv3gAngIV5kp3EY",
+      "project": {
+        "updatedAt": "2026-01-28T17:04:35.690Z",
+        "createdAt": "2026-01-28T17:02:01.338Z",
+        "id": "Gsv3gAngIV5kp3EY",
+        "name": "Alex CAsu <alex.casu@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "047b5eb0-cd50-4e4c-bb40-96c0b8cf62ba"
+      }
+    }
+  ]
+}

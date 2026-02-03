@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  portfolios     Portfolio[]
+  alerts         Alert[]
+  watchlists     Watchlist[]
+  notifications  Notification[]
+  settings       UserSettings?
+  tradingProfile TradingProfile?
+
+  @@map("users")
+}
+
+model UserSettings {
+  id                        String    @id @default(cuid())
+  userId                    String    @unique @map("user_id")
+  alertSuggestionThreshold  Float     @default(3) @map("alert_suggestion_threshold")
+  alertSuggestionInterval   Int       @default(360) @map("alert_suggestion_interval") // minutes, 0 = disabled (default 6h)
+  lastAlertSuggestionAt     DateTime? @map("last_alert_suggestion_at")
+  sentimentRefreshInterval  Int       @default(5) @map("sentiment_refresh_interval") // minutes, 0 = disabled
+  telegramChatId            String?   @map("telegram_chat_id")
+  telegramEnabled           Boolean   @default(false) @map("telegram_enabled")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model Asset {
+  id            String    @id @default(cuid())
+  symbol        String    @unique
+  name          String
+  type          AssetType
+  sector        String?
+  exchange      String?
+  currency      String    @default("USD")
+  currentPrice  Float?    @map("current_price")
+  previousClose Float?    @map("previous_close")
+  changePercent Float?    @map("change_percent")
+  marketCap     Float?    @map("market_cap")
+  volume        Float?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  prices             PriceHistory[]
+  technicalSignals   TechnicalSignal[]
+  holdings           Holding[]
+  alerts             Alert[]
+  newsItems          NewsAsset[]
+  watchlistItems     WatchlistAsset[]
+  alertSuggestions   AlertSuggestion[]
+  tradingAssets      TradingAsset[]
+  tradingSuggestions TradingSuggestion[]
+
+  @@map("assets")
+}
+
+enum AssetType {
+  stock
+  crypto
+  etf
+  bond
+  commodity
+}
+
+model PriceHistory {
+  id      String   @id @default(cuid())
+  assetId String   @map("asset_id")
+  date    DateTime
+  open    Float
+  high    Float
+  low     Float
+  close   Float
+  volume  Float
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, date])
+  @@map("price_history")
+}
+
+model TechnicalSignal {
+  id           String   @id @default(cuid())
+  assetId      String   @map("asset_id")
+  indicator    String
+  signal       String
+  value        Float
+  description  String?
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("technical_signals")
+}
+
+model Portfolio {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings Holding[]
+
+  @@map("portfolios")
+}
+
+model Holding {
+  id             String   @id @default(cuid())
+  portfolioId    String   @map("portfolio_id")
+  assetId        String   @map("asset_id")
+  quantity       Float
+  avgBuyPrice    Float    @map("avg_buy_price")
+  tradingAssetId String?  @map("trading_asset_id") // Link to trading if from trading
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  portfolio    Portfolio     @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  asset        Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  tradingAsset TradingAsset? @relation(fields: [tradingAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([portfolioId, assetId])
+  @@map("holdings")
+}
+
+model Alert {
+  id              String      @id @default(cuid())
+  userId          String      @map("user_id")
+  assetId         String      @map("asset_id")
+  type            AlertType
+  condition       Json
+  status          AlertStatus @default(active)
+  channels        Json
+  lastTriggeredAt DateTime?   @map("last_triggered_at")
+  triggerCount    Int         @default(0) @map("trigger_count")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  isTracking      Boolean     @default(false) @map("is_tracking")
+  trackingStartedAt DateTime? @map("tracking_started_at")
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset       Asset             @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  history     AlertHistory[]
+  priceTracks AlertPriceTrack[]
+
+  @@map("alerts")
+}
+
+enum AlertType {
+  price_above
+  price_below
+  percent_change
+  volume_spike
+  technical_signal
+}
+
+enum AlertStatus {
+  active
+  triggered
+  paused
+  expired
+}
+
+model AlertHistory {
+  id             String   @id @default(cuid())
+  alertId        String   @map("alert_id")
+  triggeredAt    DateTime @default(now()) @map("triggered_at")
+  priceAtTrigger Float    @map("price_at_trigger")
+  message        String
+  notified       Boolean  @default(false)
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@map("alert_history")
+}
+
+model AlertPriceTrack {
+  id         String   @id @default(cuid())
+  alertId    String   @map("alert_id")
+  price      Float
+  threshold  Float
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, recordedAt])
+  @@map("alert_price_tracks")
+}
+
+model Analysis {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  summary   String
+  content   String   @db.Text
+  sentiment String?
+  assets    Json?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("analyses")
+}
+
+model NewsItem {
+  id              String   @id @default(cuid())
+  title           String
+  titleOriginal   String?  @map("title_original")
+  summary         String   @db.Text
+  summaryOriginal String?  @db.Text @map("summary_original")
+  url             String   @unique
+  source          String
+  imageUrl        String?  @map("image_url")
+  sentiment       String?
+  publishedAt     DateTime @map("published_at")
+  fetchedAt       DateTime @default(now()) @map("fetched_at")
+
+  relatedAssets NewsAsset[]
+
+  @@map("news_items")
+}
+
+model NewsAsset {
+  newsItemId String @map("news_item_id")
+  assetId    String @map("asset_id")
+
+  newsItem NewsItem @relation(fields: [newsItemId], references: [id], onDelete: Cascade)
+  asset    Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([newsItemId, assetId])
+  @@map("news_assets")
+}
+
+model EconomicIndicator {
+  id            String   @id @default(cuid())
+  name          String
+  value         Float
+  previousValue Float?   @map("previous_value")
+  change        Float?
+  unit          String
+  country       String
+  source        String
+  date          DateTime
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("economic_indicators")
+}
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets WatchlistAsset[]
+
+  @@map("watchlists")
+}
+
+model WatchlistAsset {
+  watchlistId String @map("watchlist_id")
+  assetId     String @map("asset_id")
+
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  asset     Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([watchlistId, assetId])
+  @@map("watchlist_assets")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String   // alert, system, news
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  dismissed Boolean  @default(false)
+  data      Json?    // extra data (alertId, assetId, etc.)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AlertSuggestion {
+  id              String   @id @default(cuid())
+  assetId         String   @map("asset_id")
+  symbol          String
+  name            String
+  type            String
+  threshold       Float
+  reason          String   @db.Text
+  reasonOriginal  String?  @db.Text @map("reason_original")
+  confidence      String
+  dismissed       Boolean  @default(false)
+  acceptedAlertId String?  @map("accepted_alert_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("alert_suggestions")
+}
+
+// ==================== TRADING ====================
+
+model TradingProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique @map("user_id")
+
+  // Survey responses
+  horizon            String   // "short", "medium", "long"
+  riskTolerance      String   @map("risk_tolerance") // "conservative", "moderate", "aggressive"
+  targetProfitPct    Float    @map("target_profit_pct") // 5, 10, 15, 20...
+  maxLossPct         Float    @map("max_loss_pct") // 5, 10, 15...
+  preferredSectors   String[] @map("preferred_sectors")
+  investmentPerTrade Float?   @map("investment_per_trade")
+  tradingStyle       String   @default("swing") @map("trading_style") // "momentum", "value", "swing", "scalping"
+
+  // Cash balance for trading
+  cashBalance        Float    @default(0) @map("cash_balance") // Available funds for trading
+
+  // Settings
+  analysisInterval           Int       @default(30) @map("analysis_interval") // minutes for asset analysis
+  suggestionInterval         Int       @default(360) @map("suggestion_interval") // minutes for new suggestions (default 6h)
+  resuggestDismissedAfterDays Int?     @map("resuggest_dismissed_after_days") // days before re-suggesting dismissed assets (null/0 = always allow)
+  lastAnalysisAt             DateTime? @map("last_analysis_at")
+  lastSuggestionAt           DateTime? @map("last_suggestion_at")
+
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tradingAssets      TradingAsset[]
+  tradingSuggestions TradingSuggestion[]
+
+  @@map("trading_profiles")
+}
+
+model TradingAsset {
+  id              String    @id @default(cuid())
+  profileId       String    @map("profile_id")
+  assetId         String    @map("asset_id")
+
+  // Trade info
+  status          TradingStatus @default(watching)
+  entryPrice      Float?    @map("entry_price") // Entry price in EUR
+  entryPriceNative Float?   @map("entry_price_native") // Entry price in original currency
+  entryDate       DateTime? @map("entry_date")
+  quantity        Float?
+  targetPrice     Float?    @map("target_price")
+  stopLossPrice   Float?    @map("stop_loss_price")
+
+  // Exit info
+  exitPrice       Float?    @map("exit_price")
+  exitDate        DateTime? @map("exit_date")
+  realizedProfitPct Float?  @map("realized_profit_pct")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  profile  TradingProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  asset    Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  signals  TradingSignal[]
+  holdings Holding[]       // Portfolio holdings linked to this trading asset
+
+  @@unique([profileId, assetId])
+  @@map("trading_assets")
+}
+
+enum TradingStatus {
+  watching  // In osservazione
+  bought    // Acquistato
+  sold      // Venduto
+}
+
+model TradingSignal {
+  id              String   @id @default(cuid())
+  tradingAssetId  String   @map("trading_asset_id")
+
+  action          TradingAction
+  confidence      String   // "high", "medium", "low"
+  reason          String   @db.Text
+  priceAtSignal   Float    @map("price_at_signal")
+
+  // Criteria that generated the signal
+  criteria        Json     // { rsi: 25, macd: "bullish", sentiment: 0.7, ... }
+
+  notified        Boolean  @default(false)
+  executed        Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tradingAsset TradingAsset @relation(fields: [tradingAssetId], references: [id], onDelete: Cascade)
+
+  @@map("trading_signals")
+}
+
+enum TradingAction {
+  BUY
+  SELL
+  HOLD
+}
+
+model TradingSuggestion {
+  id              String   @id @default(cuid())
+  profileId       String   @map("profile_id")
+  assetId         String   @map("asset_id")
+
+  // Suggestion details
+  reason          String   @db.Text
+  confidence      String   // "high", "medium", "low"
+  expectedProfit  Float?   @map("expected_profit") // Expected profit %
+  riskLevel       String?  @map("risk_level") // "low", "medium", "high"
+  timeframe       String?  // "days", "weeks", "months"
+
+  // Criteria that generated the suggestion
+  criteria        Json     // { rsi, macd, sentiment, sector, ... }
+
+  // Status
+  status          String   @default("pending") // "pending", "accepted", "dismissed"
+  acceptedAt      DateTime? @map("accepted_at")
+  dismissedAt     DateTime? @map("dismissed_at")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  profile         TradingProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  asset           Asset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, assetId, status])
+  @@map("trading_suggestions")
+}

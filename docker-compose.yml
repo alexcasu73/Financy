@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: financy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: financy
+      POSTGRES_PASSWORD: financy
+      POSTGRES_DB: financy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: financy-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: financy-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Rome
+      - N8N_SECURE_COOKIE=false
+      # Allow access to environment variables in expressions
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # API Key for workflow management
+      - N8N_API_KEY=${N8N_API_KEY:-financy-n8n-api-key}
+      - N8N_PUBLIC_API_ENABLED=true
+      # Financy API
+      - API_BASE_URL=http://host.docker.internal:3001
+      - API_URL=http://host.docker.internal:3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-financy-internal-key}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_data:

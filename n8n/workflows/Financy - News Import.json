@@ -1,0 +1,122 @@
+{
+  "name": "Financy - News Import",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "id": "43da50d2-f293-412e-94a5-43cda47957b9",
+      "name": "Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "import-news",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ddcd0a41-b023-4785-8c07-bb47cd7594a3",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        144
+      ],
+      "webhookId": "import-news"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/news/fetch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "d23d0f65-dba5-4390-a2f9-1d10021aac93",
+      "name": "Import & Translate News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        128,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nreturn [{ json: { success: true, imported: result.imported || 0, total: result.total || 0 } }];"
+      },
+      "id": "b6ed59c6-8b92-4f54-ab2d-18aa12cff63c",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        48
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 4 Hours": {
+      "main": [
+        [
+          {
+            "node": "Import & Translate News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Import & Translate News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Import & Translate News": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "d9e73114-d129-4ec9-a66f-665f44ab4cf8",
+  "meta": {
+    "instanceId": "e1a09f406429ab5b016baecc90e64a896f2b758f797fb2fd34980cd5a482bcd8"
+  },
+  "id": "006H2-1h5BjHppLAymN1E",
+  "tags": []
+}

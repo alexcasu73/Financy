@@ -1,0 +1,290 @@
+{
+  "name": "Financy - AI Analysis Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-analysis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "financy-ai-analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and validate request parameters\nconst body = $input.first().json.body || $input.first().json;\n\nconst analysisType = body.type || 'market_overview';\nconst userId = body.userId || null;\nconst assetId = body.assetId || null;\n\n// Default preferences\nconst preferences = {\n  riskTolerance: body.preferences?.riskTolerance || 'moderate',\n  timeHorizon: body.preferences?.timeHorizon || 'medium',\n  goals: body.preferences?.goals || 'growth',\n  preferredSectors: body.preferences?.preferredSectors || [],\n  baseCurrency: body.preferences?.baseCurrency || 'EUR'\n};\n\n// Validate analysis type\nconst validTypes = ['portfolio_digest', 'market_overview', 'asset_deep_dive'];\nif (!validTypes.includes(analysisType)) {\n  throw new Error(`Invalid analysis type: ${analysisType}. Valid types: ${validTypes.join(', ')}`);\n}\n\n// Validate required fields\nif (analysisType === 'portfolio_digest' && !userId) {\n  throw new Error('userId is required for portfolio_digest analysis');\n}\nif (analysisType === 'asset_deep_dive' && !assetId) {\n  throw new Error('assetId is required for asset_deep_dive analysis');\n}\n\nreturn [{ \n  json: { \n    analysisType, \n    userId, \n    assetId, \n    preferences \n  } \n}];"
+      },
+      "id": "validate-request",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.assetId ? $env.API_URL + '/api/assets/' + $json.assetId : $env.API_URL + '/api/assets?limit=30' }}",
+        "options": {}
+      },
+      "id": "fetch-assets",
+      "name": "Fetch Assets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_URL }}/api/news",
+        "options": {}
+      },
+      "id": "fetch-news",
+      "name": "Fetch News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the AI prompt based on analysis type\nconst request = $('Validate Request').first().json;\nconst { analysisType, assetId, preferences } = request;\n\nconst currency = preferences.baseCurrency === 'EUR' ? '€' : '$';\n\n// Sector mapping from frontend IDs to database values\nconst sectorMapping = {\n  tech: ['Technology'],\n  healthcare: ['Healthcare'],\n  finance: ['Financial Services'],\n  energy: ['Energy', 'Utilities'],\n  consumer: ['Consumer Cyclical', 'Consumer Defensive', 'Automotive', 'Communication Services'],\n  industrial: ['Industrial', 'Manufacturing', 'Basic Materials'],\n  crypto: ['Cryptocurrency']\n};\n\nconst sectorLabels = {\n  tech: 'Tecnologia',\n  healthcare: 'Salute',\n  finance: 'Finanza',\n  energy: 'Energia',\n  consumer: 'Beni di Consumo',\n  industrial: 'Industriale',\n  crypto: 'Crypto'\n};\n\n// Keywords for filtering news by sector\nconst sectorNewsKeywords = {\n  tech: ['tech', 'software', 'ai', 'artificial intelligence', 'chip', 'semiconductor', 'nvidia', 'apple', 'microsoft', 'google', 'meta', 'amazon', 'cloud', 'data center'],\n  healthcare: ['health', 'pharma', 'drug', 'fda', 'medical', 'biotech', 'hospital', 'vaccine', 'treatment', 'clinical', 'patient', 'disease', 'novo nordisk', 'unitedhealth', 'johnson'],\n  finance: ['bank', 'financial', 'loan', 'credit', 'interest rate', 'fed', 'jpmorgan', 'goldman', 'visa', 'mastercard', 'insurance'],\n  energy: ['oil', 'gas', 'energy', 'renewable', 'solar', 'wind', 'exxon', 'chevron', 'shell', 'bp', 'opec', 'crude'],\n  consumer: ['retail', 'consumer', 'shopping', 'e-commerce', 'amazon', 'walmart', 'target', 'disney', 'netflix', 'entertainment'],\n  industrial: ['industrial', 'manufacturing', 'supply chain', 'logistics', 'aerospace', 'defense', 'construction'],\n  crypto: ['crypto', 'bitcoin', 'ethereum', 'blockchain', 'token', 'defi', 'nft', 'binance', 'coinbase', 'stablecoin']\n};\n\n// Get news data\nlet newsData = [];\ntry {\n  const newsResponse = $('Fetch News').first().json;\n  newsData = Array.isArray(newsResponse) ? newsResponse : (newsResponse.data || []);\n} catch (e) { newsData = []; }\n\n// Get assets data\nlet assets = [];\ntry {\n  const assetsResponse = $('Fetch Assets').first().json;\n  if (Array.isArray(assetsResponse)) {\n    assets = assetsResponse;\n  } else if (assetsResponse.data) {\n    assets = assetsResponse.data;\n  } else if (assetsResponse.id) {\n    assets = [assetsResponse];\n  }\n} catch (e) { assets = []; }\n\nlet prompt = '';\nlet contextData = { assets: assets.map(a => a.id) };\n\n// ASSET DEEP DIVE - Focus on single asset\nif (analysisType === 'asset_deep_dive' && assets.length > 0) {\n  const asset = assets[0];\n  \n  const assetNews = newsData.filter(n => \n    n.title?.toLowerCase().includes(asset.symbol?.toLowerCase()) ||\n    n.title?.toLowerCase().includes(asset.name?.toLowerCase().split(' ')[0])\n  ).slice(0, 5);\n  \n  const newsText = assetNews.length > 0 \n    ? assetNews.map(n => `- \"${n.title}\"`).join('\\n')\n    : 'Nessuna news specifica recente per questo asset.';\n\n  prompt = `Sei un analista finanziario specializzato. Analizza in dettaglio il seguente asset:\n\nASSET: ${asset.symbol} - ${asset.name}\nTipo: ${asset.type || 'N/A'}\nSettore: ${asset.sector || 'N/A'}\nPrezzo attuale: ${currency}${(asset.currentPrice || 0).toFixed(2)}\nVariazione: ${(asset.changePercent || 0) >= 0 ? '+' : ''}${(asset.changePercent || 0).toFixed(2)}%\nVolume: ${asset.volume ? asset.volume.toLocaleString() : 'N/A'}\nMarket Cap: ${asset.marketCap ? currency + (asset.marketCap / 1e9).toFixed(2) + 'B' : 'N/A'}\n\nNEWS CORRELATE:\n${newsText}\n\nFornisci un'analisi approfondita di questo specifico asset, includendo:\n1. Un titolo che rifletta la situazione attuale dell'asset (es: \"Tesla: Correzione Tecnica o Opportunità?\")\n2. Un sommario conciso (2-3 frasi) sullo stato dell'asset\n3. Analisi dettagliata: performance recente, posizionamento nel settore, fattori chiave, prospettive\n4. 3 raccomandazioni operative specifiche per questo asset\n5. Sentiment sull'asset (very_bullish/bullish/neutral/bearish/very_bearish)\n\nRispondi in italiano. Formato JSON:\n{\n  \"title\": \"...\",\n  \"summary\": \"...\",\n  \"content\": \"...\",\n  \"recommendations\": [\"...\", \"...\", \"...\"],\n  \"sentiment\": \"...\"\n}`;\n\n  contextData = { assets: [asset.id], assetSymbol: asset.symbol };\n}\n// MARKET OVERVIEW - with sector filtering\nelse if (analysisType === 'market_overview') {\n  const preferredSectors = preferences.preferredSectors || [];\n  const hasSectorFilter = preferredSectors.length > 0;\n  \n  // Get database sector names for filtering\n  const dbSectors = preferredSectors.flatMap(s => sectorMapping[s] || []);\n  const sectorLabelsList = preferredSectors.map(s => sectorLabels[s] || s);\n  \n  // Get news keywords for selected sectors\n  const newsKeywords = preferredSectors.flatMap(s => sectorNewsKeywords[s] || []);\n  \n  // Filter assets by sector if sectors are specified\n  let filteredAssets = assets;\n  if (hasSectorFilter && dbSectors.length > 0) {\n    filteredAssets = assets.filter(a => {\n      if (!a.sector) return false;\n      return dbSectors.some(dbSector => \n        a.sector.toLowerCase().includes(dbSector.toLowerCase()) ||\n        dbSector.toLowerCase().includes(a.sector.toLowerCase())\n      );\n    });\n    // If no matches, also include crypto type for crypto sector\n    if (preferredSectors.includes('crypto')) {\n      const cryptoAssets = assets.filter(a => a.type === 'crypto');\n      filteredAssets = [...filteredAssets, ...cryptoAssets];\n    }\n  }\n  \n  // Use filtered assets or all if no filter/no matches\n  const assetsToShow = filteredAssets.length > 0 ? filteredAssets : assets;\n  \n  const assetsText = assetsToShow.slice(0, 25).map(a => \n    `- ${a.symbol} (${a.name}): ${currency}${(a.currentPrice || 0).toFixed(2)} (${(a.changePercent || 0) >= 0 ? '+' : ''}${(a.changePercent || 0).toFixed(2)}%)${a.sector ? ' [' + a.sector + ']' : ''}`\n  ).join('\\n');\n\n  // Filter news by sector keywords if sector filter is active\n  let filteredNews = newsData;\n  if (hasSectorFilter && newsKeywords.length > 0) {\n    filteredNews = newsData.filter(n => {\n      const title = (n.title || '').toLowerCase();\n      const summary = (n.summary || '').toLowerCase();\n      return newsKeywords.some(kw => title.includes(kw) || summary.includes(kw));\n    });\n  }\n  \n  const newsToShow = filteredNews.length > 0 ? filteredNews : (hasSectorFilter ? [] : newsData);\n  const newsText = newsToShow.slice(0, 8).map(n => {\n    const date = new Date(n.publishedAt).toLocaleDateString('it-IT');\n    return `- [${date}] \"${n.title}\"`;\n  }).join('\\n') || (hasSectorFilter ? 'Nessuna news specifica per questo settore.' : 'Nessuna news recente disponibile.');\n\n  // Build STRICT sector-focused prompt\n  if (hasSectorFilter) {\n    prompt = `Sei un analista specializzato ESCLUSIVAMENTE nel settore ${sectorLabelsList.join(' e ')}.\n\nATTENZIONE: Questa analisi DEVE riguardare SOLO il settore ${sectorLabelsList.join('/')}.\nNON menzionare altri settori (tech, crypto, energia, etc.) - IGNORA completamente qualsiasi informazione non correlata.\n\nVALUTA BASE: ${preferences.baseCurrency || 'EUR'}\n\nASSET DEL SETTORE ${sectorLabelsList.join('/').toUpperCase()}:\n${assetsText}\n\nNEWS DEL SETTORE:\n${newsText}\n\nFornisci un'analisi ESCLUSIVAMENTE sul settore ${sectorLabelsList.join('/')}:\n\n1. TITOLO: Deve contenere il nome del settore (es: \"Settore ${sectorLabelsList[0]}: ...\")\n2. SOMMARIO: 2-3 frasi SOLO sul settore ${sectorLabelsList.join('/')}\n3. ANALISI: Parla SOLO di:\n   - Performance degli asset ${sectorLabelsList.join('/')} elencati sopra\n   - Trend specifici del settore\n   - Driver di crescita/rischio del settore\n   - Confronto tra le aziende del settore\n4. RACCOMANDAZIONI: 3 consigli specifici per investire nel settore ${sectorLabelsList.join('/')}\n5. SENTIMENT sul settore (very_bullish/bullish/neutral/bearish/very_bearish)\n\nVIETATO: Non parlare di criptovalute, tech, energia o altri settori non richiesti.\n\nRispondi in italiano. Formato JSON:\n{\n  \"title\": \"...\",\n  \"summary\": \"...\",\n  \"content\": \"...\",\n  \"recommendations\": [\"...\", \"...\", \"...\"],\n  \"sentiment\": \"...\"\n}`;\n  } else {\n    // General market overview without sector filter\n    const newsText = newsData.slice(0, 10).map(n => {\n      const date = new Date(n.publishedAt).toLocaleDateString('it-IT');\n      return `- [${date}] \"${n.title}\"`;\n    }).join('\\n') || 'Nessuna news recente disponibile.';\n    \n    prompt = `Sei un analista di mercato che fornisce una panoramica dei mercati finanziari.\n\nVALUTA BASE: ${preferences.baseCurrency || 'EUR'}\n\nASSET MONITORATI:\n${assetsText}\n\nNEWS RECENTI:\n${newsText}\n\nBasandoti su questi dati, fornisci:\n1. Un titolo breve e accattivante sulla situazione di mercato\n2. Un sommario di 2-3 frasi sullo stato generale dei mercati\n3. Un'analisi dettagliata dei trend di mercato\n4. 3 raccomandazioni di mercato\n5. Sentiment generale del mercato (very_bullish/bullish/neutral/bearish/very_bearish)\n\nRispondi in italiano. Formato JSON:\n{\n  \"title\": \"...\",\n  \"summary\": \"...\",\n  \"content\": \"...\",\n  \"recommendations\": [\"...\", \"...\", \"...\"],\n  \"sentiment\": \"...\"\n}`;\n  }\n\n  contextData = { \n    assets: assetsToShow.map(a => a.id), \n    sectors: preferredSectors,\n    sectorLabels: sectorLabelsList\n  };\n}\n// PORTFOLIO DIGEST\nelse {\n  const riskLabels = {\n    conservative: 'Conservativo',\n    moderate: 'Moderato',\n    aggressive: 'Aggressivo'\n  };\n  \n  const preferencesText = `- Tolleranza al rischio: ${riskLabels[preferences.riskTolerance] || preferences.riskTolerance}\\n- Valuta base: ${preferences.baseCurrency || 'EUR'}`;\n\n  const assetsText = assets.slice(0, 20).map(a => \n    `- ${a.symbol} (${a.name}): ${currency}${(a.currentPrice || 0).toFixed(2)} (${(a.changePercent || 0) >= 0 ? '+' : ''}${(a.changePercent || 0).toFixed(2)}%)${a.sector ? ' [' + a.sector + ']' : ''}`\n  ).join('\\n');\n\n  const newsText = newsData.slice(0, 10).map(n => {\n    const date = new Date(n.publishedAt).toLocaleDateString('it-IT');\n    return `- [${date}] \"${n.title}\"`;\n  }).join('\\n') || 'Nessuna news recente disponibile.';\n\n  prompt = `Sei un analista di mercato che fornisce una panoramica dei mercati finanziari.\n\nPROFILO UTENTE:\n${preferencesText}\n\nASSET MONITORATI:\n${assetsText}\n\nNEWS RECENTI:\n${newsText}\n\nBasandoti su questi dati, fornisci:\n1. Un titolo breve e accattivante sulla situazione di mercato\n2. Un sommario di 2-3 frasi sullo stato generale dei mercati\n3. Un'analisi dettagliata dei trend di mercato\n4. 3 raccomandazioni di mercato\n5. Sentiment generale del mercato (very_bullish/bullish/neutral/bearish/very_bearish)\n\nRispondi in italiano. Formato JSON:\n{\n  \"title\": \"...\",\n  \"summary\": \"...\",\n  \"content\": \"...\",\n  \"recommendations\": [\"...\", \"...\", \"...\"],\n  \"sentiment\": \"...\"\n}`;\n}\n\nreturn [{ json: { prompt, analysisType, preferences, contextData } }];"
+      },
+      "id": "build-prompt",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2048,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.prompt) }}\n    }\n  ]\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "call-claude",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response\nconst response = $input.first().json;\nconst buildPromptData = $('Build AI Prompt').first().json;\n\nlet text = '';\nif (response.content && Array.isArray(response.content)) {\n  text = response.content\n    .filter(block => block.type === 'text')\n    .map(block => block.text)\n    .join('');\n}\n\n// Parse JSON from response\nlet analysisResult = {};\ntry {\n  const cleaned = text.replace(/```json?\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const jsonMatch = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    analysisResult = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  throw new Error('Failed to parse AI response: ' + e.message);\n}\n\n// Validate required fields\nif (!analysisResult.title || !analysisResult.summary || !analysisResult.content) {\n  throw new Error('AI response missing required fields');\n}\n\n// Build final analysis object\nconst analysis = {\n  type: buildPromptData.analysisType,\n  title: analysisResult.title,\n  summary: analysisResult.summary,\n  content: analysisResult.content,\n  sentiment: analysisResult.sentiment || 'neutral',\n  recommendations: analysisResult.recommendations || [],\n  metadata: {\n    preferences: buildPromptData.preferences,\n    ...buildPromptData.contextData,\n    generatedVia: 'n8n'\n  }\n};\n\nreturn [{ json: analysis }];"
+      },
+      "id": "parse-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_URL }}/api/analysis/save",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "save-analysis",
+      "name": "Save Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, analysis: $json }) }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Fetch Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Assets": {
+      "main": [
+        [
+          {
+            "node": "Fetch News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch News": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Save Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Analysis": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "13c0b4ff-5874-4fd1-9441-da2212672b98",
+  "meta": {
+    "instanceId": "e1a09f406429ab5b016baecc90e64a896f2b758f797fb2fd34980cd5a482bcd8"
+  },
+  "id": "GzbOg7g9JdC30TXl",
+  "tags": [
+    {
+      "updatedAt": "2026-01-28T17:02:20.630Z",
+      "createdAt": "2026-01-28T17:02:20.630Z",
+      "id": "DNGbB28BmmOELiJ5",
+      "name": "analysis"
+    },
+    {
+      "updatedAt": "2026-01-28T17:02:19.380Z",
+      "createdAt": "2026-01-28T17:02:19.380Z",
+      "id": "Kh9so8KHygHAMmbD",
+      "name": "financy"
+    },
+    {
+      "updatedAt": "2026-01-28T17:02:19.381Z",
+      "createdAt": "2026-01-28T17:02:19.381Z",
+      "id": "fcJy3LFuetdOWOuz",
+      "name": "ai"
+    }
+  ]
+}
