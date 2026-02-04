@@ -156,7 +156,21 @@ echo -e "${GREEN}✓ Images pulled${NC}"
 echo ""
 echo -e "${YELLOW}🔨 Building application images...${NC}"
 echo -e "${YELLOW}   This may take several minutes...${NC}"
-docker compose -f docker-compose.prod.yml build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1
+
+# Set DNS for Docker build
+export DOCKER_BUILDKIT=1
+
+# Build with custom DNS servers
+DOCKER_BUILDKIT=1 docker compose -f docker-compose.prod.yml build \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
+  2>&1 | tee build.log
+
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo -e "${YELLOW}⚠️  Build failed, retrying with network=host...${NC}"
+    DOCKER_BUILDKIT=1 docker build --network=host -f Dockerfile.api -t financy_api .
+    DOCKER_BUILDKIT=1 docker build --network=host -f Dockerfile.web -t financy_web .
+fi
+
 echo -e "${GREEN}✓ Images built${NC}"
 
 # Start services
