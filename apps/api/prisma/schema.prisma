@@ -34,6 +34,10 @@ model UserSettings {
   sentimentRefreshInterval  Int       @default(5) @map("sentiment_refresh_interval") // minutes, 0 = disabled
   telegramChatId            String?   @map("telegram_chat_id")
   telegramEnabled           Boolean   @default(false) @map("telegram_enabled")
+  // Auto-calibration for EUR prices (Trade Republic matching)
+  referencePortfolioValue   Float?    @map("reference_portfolio_value") // Reference value from Trade Republic
+  eurPriceAdjustmentFactor  Float     @default(1.0) @map("eur_price_adjustment_factor") // Auto-calculated correction factor
+  lastCalibrationAt         DateTime? @map("last_calibration_at")
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedAt                 DateTime  @updatedAt @map("updated_at")
 

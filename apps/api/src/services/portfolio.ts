@@ -48,8 +48,27 @@ export class PortfolioService {
   async calculatePerformance(portfolioId: string): Promise<PortfolioPerformance> {
     const holdings = await this.fastify.prisma.holding.findMany({
       where: { portfolioId },
-      include: { asset: true },
+      include: { asset: true, portfolio: { include: { user: { include: { settings: true } } } } },
     });
+
+    if (holdings.length === 0) {
+      return {
+        totalValueEur: 0,
+        totalCostEur: 0,
+        totalReturnEur: 0,
+        totalReturnPercent: 0,
+        dailyChangeEur: 0,
+        dailyChangePercent: 0,
+        totalValue: 0,
+        totalCost: 0,
+        totalReturn: 0,
+        eurRate: 1,
+        holdings: [],
+      };
+    }
+
+    // Get EUR price adjustment factor from user settings
+    const eurAdjustmentFactor = holdings[0].portfolio.user.settings?.eurPriceAdjustmentFactor ?? 1.0;
 
     // Collect unique currencies and fetch EUR rates for each
     const currencies = [...new Set(holdings.map((h) => h.asset.currency))];
@@ -76,8 +95,13 @@ export class PortfolioService {
 
       // EUR primary — avgBuyPrice is already stored in EUR
       // Calculate with full precision, round only final values
-      const currentPriceEurRaw = currency === "EUR" ? currentPrice : currentPrice * fxRate;
-      const previousCloseEurRaw = currency === "EUR" ? previousClose : previousClose * fxRate;
+      // Apply EUR adjustment factor for EUR prices (Trade Republic calibration)
+      const currentPriceEurRaw = currency === "EUR"
+        ? currentPrice * eurAdjustmentFactor
+        : currentPrice * fxRate;
+      const previousCloseEurRaw = currency === "EUR"
+        ? previousClose * eurAdjustmentFactor
+        : previousClose * fxRate;
 
       // Round only display values with maximum precision
       const currentPriceEur = +currentPriceEurRaw.toFixed(8); // Keep 8 decimals for price

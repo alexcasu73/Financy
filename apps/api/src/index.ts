@@ -21,6 +21,7 @@ import { settingsRoutes } from "./routes/settings.js";
 import { sentimentRoutes } from "./routes/sentiment.js";
 import { tradingRoutes } from "./routes/trading.js";
 import { internalRoutes } from "./routes/internal.js";
+import { calibrationRoutes } from "./routes/calibration.js";
 import { getLoggerConfig } from "./utils/logger.js";
 import { MarketDataService } from "./services/market-data.js";
 import { AlertService } from "./services/alerts.js";
@@ -76,6 +77,7 @@ async function main() {
   await fastify.register(sentimentRoutes);
   await fastify.register(tradingRoutes);
   await fastify.register(internalRoutes);
+  await fastify.register(calibrationRoutes);
 
   // Health check
   fastify.get("/api/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
