@@ -95,13 +95,13 @@ export class PortfolioService {
 
       // EUR primary — avgBuyPrice is already stored in EUR
       // Calculate with full precision, round only final values
-      // Apply EUR adjustment factor for EUR prices (Trade Republic calibration)
-      const currentPriceEurRaw = currency === "EUR"
-        ? currentPrice * eurAdjustmentFactor
-        : currentPrice * fxRate;
-      const previousCloseEurRaw = currency === "EUR"
-        ? previousClose * eurAdjustmentFactor
-        : previousClose * fxRate;
+      // Apply adjustment factor to all prices (global portfolio calibration)
+      const currentPriceEurRaw = (currency === "EUR"
+        ? currentPrice
+        : currentPrice * fxRate) * eurAdjustmentFactor;
+      const previousCloseEurRaw = (currency === "EUR"
+        ? previousClose
+        : previousClose * fxRate) * eurAdjustmentFactor;
 
       // Round only display values with maximum precision
       const currentPriceEur = +currentPriceEurRaw.toFixed(8); // Keep 8 decimals for price
