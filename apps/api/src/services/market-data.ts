@@ -445,9 +445,9 @@ export class MarketDataService {
 
       if (!rates.USD) throw new Error("No USD rate in ECB data");
 
-      // Cache for 1 hour (ECB rates update once daily)
+      // Cache for 10 minutes (to get fresh rates more frequently)
       try {
-        await this.cacheSet(cacheKey, 3600, JSON.stringify(rates));
+        await this.cacheSet(cacheKey, 600, JSON.stringify(rates));
       } catch {
         // Ignore cache errors
       }
@@ -492,12 +492,12 @@ export class MarketDataService {
       }
 
       try {
-        await this.cacheSet(cacheKey, 3600, usdToEur.toFixed(6));
+        await this.cacheSet(cacheKey, 600, usdToEur.toFixed(6));
       } catch {
         // Ignore Redis errors
       }
 
-      this.fastify.log.info(`Exchange rate (ECB): 1 USD = ${usdToEur.toFixed(4)} EUR`);
+      this.fastify.log.info(`Exchange rate (ECB): 1 USD = ${usdToEur.toFixed(6)} EUR`);
       return usdToEur;
     } catch (ecbError) {
       this.fastify.log.warn(ecbError, "ECB rates failed, falling back to Yahoo Finance");
@@ -564,11 +564,11 @@ export class MarketDataService {
 
         if (xToEur > 0 && xToEur < 100) {
           try {
-            await this.cacheSet(cacheKey, 3600, xToEur.toFixed(6));
+            await this.cacheSet(cacheKey, 600, xToEur.toFixed(6));
           } catch {
             // Ignore Redis errors
           }
-          this.fastify.log.info(`Exchange rate (ECB): 1 ${currency} = ${xToEur.toFixed(4)} EUR`);
+          this.fastify.log.info(`Exchange rate (ECB): 1 ${currency} = ${xToEur.toFixed(6)} EUR`);
           return xToEur;
         }
       }
@@ -641,8 +641,8 @@ export class MarketDataService {
         }
       }
 
-      // Cache for 1 hour (ECB updates daily)
-      await this.cacheSet(cacheKey, 3600, JSON.stringify(toEurRates));
+      // Cache for 10 minutes (to get fresh rates more frequently)
+      await this.cacheSet(cacheKey, 600, JSON.stringify(toEurRates));
       this.fastify.log.info(`EUR rates cached: ${Object.keys(toEurRates).length} currencies`);
       return toEurRates;
     } catch (error) {

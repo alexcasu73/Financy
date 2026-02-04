@@ -64,22 +64,31 @@ export class PortfolioService {
     let dailyChangeEur = 0;
     let totalValue = 0;
 
-    const toEur = (v: number, currency: string) =>
-      currency === "EUR" ? v : +(v * (eurRates[currency] || eurRate)).toFixed(2);
+    // Helper to convert to EUR with high precision (no intermediate rounding)
+    const toEur = (v: number, currency: string): number =>
+      currency === "EUR" ? v : v * (eurRates[currency] || eurRate);
 
     const holdingData: HoldingPerformance[] = holdings.map((h) => {
       const currency = h.asset.currency;
       const currentPrice = h.asset.currentPrice || 0;
       const previousClose = h.asset.previousClose || currentPrice;
+      const fxRate = eurRates[currency] || eurRate;
 
       // EUR primary — avgBuyPrice is already stored in EUR
-      const currentPriceEur = toEur(currentPrice, currency);
-      const previousCloseEur = toEur(previousClose, currency);
-      const currentValueEur = +(h.quantity * currentPriceEur).toFixed(2);
+      // Calculate with full precision, round only final values
+      const currentPriceEurRaw = currency === "EUR" ? currentPrice : currentPrice * fxRate;
+      const previousCloseEurRaw = currency === "EUR" ? previousClose : previousClose * fxRate;
+
+      // Round only display values
+      const currentPriceEur = +currentPriceEurRaw.toFixed(4); // Keep 4 decimals for price
+      const previousCloseEur = +previousCloseEurRaw.toFixed(4);
+
+      // Calculate values with full precision, then round
+      const currentValueEur = +(h.quantity * currentPriceEurRaw).toFixed(2);
       const costEur = +(h.quantity * h.avgBuyPrice).toFixed(2);
       const profitLossEur = +(currentValueEur - costEur).toFixed(2);
       const profitLossPercent = costEur > 0 ? (profitLossEur / costEur) * 100 : 0;
-      const dailyHoldingChangeEur = +(h.quantity * (currentPriceEur - previousCloseEur)).toFixed(2);
+      const dailyHoldingChangeEur = +(h.quantity * (currentPriceEurRaw - previousCloseEurRaw)).toFixed(2);
 
       // Native secondary
       const currentValue = h.quantity * currentPrice;

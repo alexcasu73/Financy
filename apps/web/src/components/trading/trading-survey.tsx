@@ -9,6 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, ArrowRight, Check, Target, Shield, Clock, TrendingUp } from "lucide-react";
 
+interface SurveyStep {
+  type: "question" | "description";
+  content?: {
+    title: string;
+    description: string;
+  };
+}
+
 interface SurveyData {
   horizon: "short" | "medium" | "long";
   riskTolerance: "conservative" | "moderate" | "aggressive";
@@ -37,17 +45,41 @@ const SECTORS = [
   "Crypto",
 ];
 
+// Survey step configuration
+const SURVEY_STEPS: Array<{ type: "question" | "description"; step: number; content?: { title: string; description: string } }> = [
+  {
+    type: "description",
+    step: 0,
+    content: {
+      title: "Benvenuto nel Configuratore Trading",
+      description: "Questo questionario ti aiuterà a personalizzare i segnali di trading in base alle tue preferenze e al tuo profilo di rischio. Rispondi con attenzione alle domande seguenti."
+    }
+  },
+  { type: "question", step: 1 },
+  { type: "question", step: 2 },
+  { type: "question", step: 3 },
+  { type: "question", step: 4 },
+  { type: "question", step: 5 },
+  { type: "question", step: 6 },
+];
+
 export function TradingSurvey({ onComplete, loading }: TradingSurveyProps) {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(0);
   const [data, setData] = useState<Partial<SurveyData>>({
     preferredSectors: [],
   });
 
-  const totalSteps = 6;
+  const totalSteps = SURVEY_STEPS.length - 1;
   const progress = (step / totalSteps) * 100;
+  const currentStepConfig = SURVEY_STEPS[step];
 
   const canProceed = () => {
+    // Description steps can always proceed
+    if (currentStepConfig?.type === "description") return true;
+
     switch (step) {
+      case 0:
+        return true; // Description step
       case 1:
         return !!data.horizon;
       case 2:
@@ -74,7 +106,7 @@ export function TradingSurvey({ onComplete, loading }: TradingSurveyProps) {
   };
 
   const handleBack = () => {
-    if (step > 1) setStep(step - 1);
+    if (step > 0) setStep(step - 1);
   };
 
   const toggleSector = (sector: string) => {
@@ -103,6 +135,19 @@ export function TradingSurvey({ onComplete, loading }: TradingSurveyProps) {
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {/* Step 0: Description/Welcome */}
+        {step === 0 && currentStepConfig?.type === "description" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Target className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold">{currentStepConfig.content?.title}</h3>
+            </div>
+            <p className="text-muted-foreground leading-relaxed">
+              {currentStepConfig.content?.description}
+            </p>
+          </div>
+        )}
+
         {/* Step 1: Time Horizon */}
         {step === 1 && (
           <div className="space-y-4">
@@ -314,7 +359,7 @@ export function TradingSurvey({ onComplete, loading }: TradingSurveyProps) {
 
         {/* Navigation */}
         <div className="flex justify-between pt-4">
-          <Button variant="outline" onClick={handleBack} disabled={step === 1}>
+          <Button variant="outline" onClick={handleBack} disabled={step === 0 || loading}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Indietro
           </Button>
