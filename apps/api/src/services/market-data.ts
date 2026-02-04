@@ -695,8 +695,18 @@ export class MarketDataService {
       }
 
       const meta = result.meta;
-      const price = meta.regularMarketPrice;
-      const previousClose = meta.chartPreviousClose;
+      let price = meta.regularMarketPrice;
+      let previousClose = meta.chartPreviousClose;
+
+      // Apply 0.5% discount for European (Xetra) prices to match LS Exchange
+      // LS Exchange (Trade Republic) prices are typically 0.4-0.8% lower than Xetra
+      const LS_EXCHANGE_DISCOUNT = 0.995; // 0.5% discount
+      if (isEU) {
+        price = price * LS_EXCHANGE_DISCOUNT;
+        previousClose = previousClose * LS_EXCHANGE_DISCOUNT;
+        this.fastify.log.debug(`Applied LS Exchange discount (0.5%) to ${preferredSymbol}: ${meta.regularMarketPrice.toFixed(2)} → ${price.toFixed(2)}`);
+      }
+
       const change = price - previousClose;
       const changePercent = (change / previousClose) * 100;
 
@@ -707,8 +717,8 @@ export class MarketDataService {
         changePercent: +changePercent.toFixed(2),
         volume: meta.regularMarketVolume || 0,
         previousClose,
-        dayHigh: meta.regularMarketDayHigh,
-        dayLow: meta.regularMarketDayLow,
+        dayHigh: meta.regularMarketDayHigh ? meta.regularMarketDayHigh * (isEU ? LS_EXCHANGE_DISCOUNT : 1) : undefined,
+        dayLow: meta.regularMarketDayLow ? meta.regularMarketDayLow * (isEU ? LS_EXCHANGE_DISCOUNT : 1) : undefined,
         currency: meta.currency || (isEU ? "EUR" : "USD"),
       };
 
