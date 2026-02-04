@@ -79,11 +79,11 @@ export class PortfolioService {
       const currentPriceEurRaw = currency === "EUR" ? currentPrice : currentPrice * fxRate;
       const previousCloseEurRaw = currency === "EUR" ? previousClose : previousClose * fxRate;
 
-      // Round only display values
-      const currentPriceEur = +currentPriceEurRaw.toFixed(4); // Keep 4 decimals for price
-      const previousCloseEur = +previousCloseEurRaw.toFixed(4);
+      // Round only display values with maximum precision
+      const currentPriceEur = +currentPriceEurRaw.toFixed(8); // Keep 8 decimals for price
+      const previousCloseEur = +previousCloseEurRaw.toFixed(8);
 
-      // Calculate values with full precision, then round
+      // Calculate values with full precision, then round to cents
       const currentValueEur = +(h.quantity * currentPriceEurRaw).toFixed(2);
       const costEur = +(h.quantity * h.avgBuyPrice).toFixed(2);
       const profitLossEur = +(currentValueEur - costEur).toFixed(2);

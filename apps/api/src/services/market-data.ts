@@ -446,9 +446,9 @@ export class MarketDataService {
 
       if (!rates.USD) throw new Error("No USD rate in ECB data");
 
-      // Cache for 10 minutes (to get fresh rates more frequently)
+      // Cache for 5 minutes (maximum freshness)
       try {
-        await this.cacheSet(cacheKey, 600, JSON.stringify(rates));
+        await this.cacheSet(cacheKey, 300, JSON.stringify(rates));
       } catch {
         // Ignore cache errors
       }
@@ -493,7 +493,7 @@ export class MarketDataService {
       }
 
       try {
-        await this.cacheSet(cacheKey, 600, usdToEur.toFixed(6));
+        await this.cacheSet(cacheKey, 300, usdToEur.toFixed(10));
       } catch {
         // Ignore Redis errors
       }
@@ -565,7 +565,7 @@ export class MarketDataService {
 
         if (xToEur > 0 && xToEur < 100) {
           try {
-            await this.cacheSet(cacheKey, 600, xToEur.toFixed(6));
+            await this.cacheSet(cacheKey, 300, xToEur.toFixed(10));
           } catch {
             // Ignore Redis errors
           }
@@ -642,8 +642,8 @@ export class MarketDataService {
         }
       }
 
-      // Cache for 10 minutes (to get fresh rates more frequently)
-      await this.cacheSet(cacheKey, 600, JSON.stringify(toEurRates));
+      // Cache for 5 minutes (maximum freshness)
+      await this.cacheSet(cacheKey, 300, JSON.stringify(toEurRates));
       this.fastify.log.info(`EUR rates cached: ${Object.keys(toEurRates).length} currencies`);
       return toEurRates;
     } catch (error) {
