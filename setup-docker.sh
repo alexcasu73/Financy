@@ -155,7 +155,8 @@ echo -e "${GREEN}✓ Images pulled${NC}"
 # Build application images
 echo ""
 echo -e "${YELLOW}🔨 Building application images...${NC}"
-docker compose -f docker-compose.prod.yml build
+echo -e "${YELLOW}   This may take several minutes...${NC}"
+docker compose -f docker-compose.prod.yml build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1
 echo -e "${GREEN}✓ Images built${NC}"
 
 # Start services
