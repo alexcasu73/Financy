@@ -1,0 +1,50 @@
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY packages/shared/package*.json ./packages/shared/
+
+# Install dependencies
+RUN npm ci
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build shared package
+WORKDIR /app/packages/shared
+RUN npm run build
+
+# Generate Prisma Client
+WORKDIR /app/apps/api
+RUN npx prisma generate
+
+# Production image
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 apiuser
+
+# Copy necessary files
+COPY --from=builder --chown=apiuser:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=apiuser:nodejs /app/apps/api ./apps/api
+COPY --from=builder --chown=apiuser:nodejs /app/packages/shared ./packages/shared
+
+WORKDIR /app/apps/api
+
+USER apiuser
+
+EXPOSE 3001
+
+CMD ["node", "--require", "/app/node_modules/tsx/dist/preflight.cjs", "--import", "/app/node_modules/tsx/dist/loader.mjs", "src/index.ts"]
