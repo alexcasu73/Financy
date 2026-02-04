@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import { getPreferredSymbol, isEuropeanSymbol } from "../config/exchange-mapping.js";
 
 interface StockQuote {
   symbol: string;
@@ -663,20 +664,33 @@ export class MarketDataService {
 
   // ─── STOCKS (Yahoo Finance) ────────────────────────────────────────
 
-  async getStockQuote(symbol: string): Promise<StockQuote | null> {
-    const cacheKey = `quote:${symbol}`;
+  async getStockQuote(symbol: string, preferEuropean: boolean = true): Promise<StockQuote | null> {
+    // Use European symbol if available and preferred
+    const preferredSymbol = getPreferredSymbol(symbol, preferEuropean);
+    const isEU = isEuropeanSymbol(preferredSymbol);
+
+    if (preferredSymbol !== symbol) {
+      this.fastify.log.info(`Using European symbol ${preferredSymbol} instead of ${symbol}`);
+    }
+
+    const cacheKey = `quote:${preferredSymbol}`;
     const cached = await this.cacheGet(cacheKey);
     if (cached) return JSON.parse(cached);
 
     try {
       const res = await fetch(
-        `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
+        `https://query2.finance.yahoo.com/v8/finance/chart/${preferredSymbol}?interval=1d&range=1d`,
         { headers: YAHOO_HEADERS }
       );
       const data = await res.json();
       const result = data?.chart?.result?.[0];
       if (!result) {
-        this.fastify.log.warn(`No Yahoo Finance data for ${symbol}`);
+        this.fastify.log.warn(`No Yahoo Finance data for ${preferredSymbol}`);
+        // If European symbol failed, try original US symbol as fallback
+        if (isEU && preferredSymbol !== symbol) {
+          this.fastify.log.info(`European symbol ${preferredSymbol} failed, falling back to ${symbol}`);
+          return this.getStockQuote(symbol, false);
+        }
         return null;
       }
 
@@ -687,7 +701,7 @@ export class MarketDataService {
       const changePercent = (change / previousClose) * 100;
 
       const quote: StockQuote = {
-        symbol: meta.symbol,
+        symbol: symbol, // Return original symbol for consistency
         price,
         change: +change.toFixed(2),
         changePercent: +changePercent.toFixed(2),
@@ -695,14 +709,19 @@ export class MarketDataService {
         previousClose,
         dayHigh: meta.regularMarketDayHigh,
         dayLow: meta.regularMarketDayLow,
-        currency: meta.currency || "USD",
+        currency: meta.currency || (isEU ? "EUR" : "USD"),
       };
 
       // Cache for 60 seconds (Yahoo Finance is real-time)
       await this.cacheSet(cacheKey, 60, JSON.stringify(quote));
       return quote;
     } catch (error) {
-      this.fastify.log.error(error, `Failed to fetch Yahoo Finance quote for ${symbol}`);
+      this.fastify.log.error(error, `Failed to fetch Yahoo Finance quote for ${preferredSymbol}`);
+      // If European symbol failed, try original US symbol as fallback
+      if (isEU && preferredSymbol !== symbol) {
+        this.fastify.log.info(`European symbol ${preferredSymbol} error, falling back to ${symbol}`);
+        return this.getStockQuote(symbol, false);
+      }
       return null;
     }
   }
