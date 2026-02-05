@@ -67,21 +67,7 @@ export class PortfolioService {
       };
     }
 
-    // Get global EUR price adjustment factor from user settings
-    const globalAdjustmentFactor = holdings[0].portfolio.user.settings?.eurPriceAdjustmentFactor ?? 1.0;
-
-    // Get per-asset adjustment factors
-    const userId = holdings[0].portfolio.userId;
-    const assetIds = holdings.map(h => h.assetId);
-    const assetCalibrations = await this.fastify.prisma.assetCalibration.findMany({
-      where: { userId, assetId: { in: assetIds } },
-    });
-
-    // Create lookup map: assetId -> adjustmentFactor
-    const assetFactors = new Map<string, number>();
-    for (const cal of assetCalibrations) {
-      assetFactors.set(cal.assetId, cal.adjustmentFactor);
-    }
+    // No calibration - use raw market prices
 
     // Collect unique currencies and fetch EUR rates for each
     const currencies = [...new Set(holdings.map((h) => h.asset.currency))];
@@ -108,14 +94,12 @@ export class PortfolioService {
 
       // EUR primary — avgBuyPrice is already stored in EUR
       // Calculate with full precision, round only final values
-      // Apply per-asset adjustment factor (or global if not set)
-      const assetAdjustmentFactor = assetFactors.get(h.assetId) ?? globalAdjustmentFactor;
-      const currentPriceEurRaw = (currency === "EUR"
+      const currentPriceEurRaw = currency === "EUR"
         ? currentPrice
-        : currentPrice * fxRate) * assetAdjustmentFactor;
-      const previousCloseEurRaw = (currency === "EUR"
+        : currentPrice * fxRate;
+      const previousCloseEurRaw = currency === "EUR"
         ? previousClose
-        : previousClose * fxRate) * assetAdjustmentFactor;
+        : previousClose * fxRate;
 
       // Round only display values with maximum precision
       const currentPriceEur = +currentPriceEurRaw.toFixed(8); // Keep 8 decimals for price
