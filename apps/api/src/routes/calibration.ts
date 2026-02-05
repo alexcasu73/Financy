@@ -7,6 +7,15 @@ const calibrateSchema = z.object({
   portfolioId: z.string().optional(),
 });
 
+const assetCalibrateSchema = z.object({
+  assetId: z.string(),
+  adjustmentFactor: z.number().positive().optional(),
+  referencePrice: z.number().positive().optional(),
+}).refine(
+  (data) => data.adjustmentFactor !== undefined || data.referencePrice !== undefined,
+  { message: "Either adjustmentFactor or referencePrice must be provided" }
+);
+
 export async function calibrationRoutes(fastify: FastifyInstance) {
   // POST /api/calibration/set-reference - Set reference portfolio value and auto-calculate adjustment factor
   fastify.post("/api/calibration/set-reference", {
@@ -127,6 +136,111 @@ export async function calibrationRoutes(fastify: FastifyInstance) {
     return {
       message: "Calibration reset successfully",
       adjustmentFactor: 1.0,
+    };
+  });
+
+  // POST /api/calibration/asset - Set calibration for a specific asset
+  fastify.post("/api/calibration/asset", {
+    onRequest: [fastify.authenticate],
+  }, async (request, reply) => {
+    const parsed = assetCalibrateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Validation error", details: parsed.error });
+    }
+
+    const { assetId, adjustmentFactor, referencePrice } = parsed.data;
+
+    // Verify asset exists
+    const asset = await fastify.prisma.asset.findUnique({ where: { id: assetId } });
+    if (!asset) {
+      return reply.status(404).send({ error: "Asset not found" });
+    }
+
+    let finalAdjustmentFactor = adjustmentFactor;
+
+    // If referencePrice provided, calculate adjustment factor
+    if (referencePrice !== undefined) {
+      const currentPrice = asset.currentPrice || 0;
+      if (currentPrice === 0) {
+        return reply.status(400).send({ error: "Asset has no current price" });
+      }
+      finalAdjustmentFactor = referencePrice / currentPrice;
+    }
+
+    // Upsert asset calibration
+    const calibration = await fastify.prisma.assetCalibration.upsert({
+      where: {
+        userId_assetId: {
+          userId: request.user.id,
+          assetId,
+        },
+      },
+      create: {
+        userId: request.user.id,
+        assetId,
+        adjustmentFactor: finalAdjustmentFactor!,
+        referencePrice,
+      },
+      update: {
+        adjustmentFactor: finalAdjustmentFactor!,
+        referencePrice,
+      },
+    });
+
+    return {
+      message: "Asset calibration set successfully",
+      assetId,
+      symbol: asset.symbol,
+      name: asset.name,
+      currentPrice: asset.currentPrice,
+      referencePrice: calibration.referencePrice,
+      adjustmentFactor: calibration.adjustmentFactor,
+      adjustmentPercent: ((calibration.adjustmentFactor - 1) * 100).toFixed(2) + "%",
+    };
+  });
+
+  // GET /api/calibration/assets - Get all asset calibrations
+  fastify.get("/api/calibration/assets", {
+    onRequest: [fastify.authenticate],
+  }, async (request) => {
+    const calibrations = await fastify.prisma.assetCalibration.findMany({
+      where: { userId: request.user.id },
+      include: { asset: true },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    return {
+      count: calibrations.length,
+      calibrations: calibrations.map((c) => ({
+        assetId: c.assetId,
+        symbol: c.asset.symbol,
+        name: c.asset.name,
+        currentPrice: c.asset.currentPrice,
+        referencePrice: c.referencePrice,
+        adjustmentFactor: c.adjustmentFactor,
+        adjustmentPercent: ((c.adjustmentFactor - 1) * 100).toFixed(2) + "%",
+        updatedAt: c.updatedAt,
+      })),
+    };
+  });
+
+  // DELETE /api/calibration/asset/:assetId - Reset calibration for a specific asset
+  fastify.delete("/api/calibration/asset/:assetId", {
+    onRequest: [fastify.authenticate],
+  }, async (request, reply) => {
+    const { assetId } = request.params as { assetId: string };
+
+    const deleted = await fastify.prisma.assetCalibration.deleteMany({
+      where: { userId: request.user.id, assetId },
+    });
+
+    if (deleted.count === 0) {
+      return reply.status(404).send({ error: "Asset calibration not found" });
+    }
+
+    return {
+      message: "Asset calibration reset successfully",
+      assetId,
     };
   });
 }

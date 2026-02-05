@@ -15,12 +15,13 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  portfolios     Portfolio[]
-  alerts         Alert[]
-  watchlists     Watchlist[]
-  notifications  Notification[]
-  settings       UserSettings?
-  tradingProfile TradingProfile?
+  portfolios         Portfolio[]
+  alerts             Alert[]
+  watchlists         Watchlist[]
+  notifications      Notification[]
+  settings           UserSettings?
+  tradingProfile     TradingProfile?
+  assetCalibrations  AssetCalibration[]
 
   @@map("users")
 }
@@ -44,6 +45,22 @@ model UserSettings {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
+}
+
+model AssetCalibration {
+  id                String    @id @default(cuid())
+  userId            String    @map("user_id")
+  assetId           String    @map("asset_id")
+  adjustmentFactor  Float     @default(1.0) @map("adjustment_factor")
+  referencePrice    Float?    @map("reference_price") // Optional: the reference price used
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assetId])
+  @@map("asset_calibrations")
 }
 
 model Asset {
@@ -71,6 +88,7 @@ model Asset {
   alertSuggestions   AlertSuggestion[]
   tradingAssets      TradingAsset[]
   tradingSuggestions TradingSuggestion[]
+  calibrations       AssetCalibration[]
 
   @@map("assets")
 }
