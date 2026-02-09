@@ -254,7 +254,7 @@ export function AnalysisWizardDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nuova Analisi AI</DialogTitle>
+          <DialogTitle>Nuova Analisi Portafoglio</DialogTitle>
           <DialogDescription>
             Configura le tue preferenze per un&apos;analisi personalizzata
           </DialogDescription>

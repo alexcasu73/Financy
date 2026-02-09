@@ -146,9 +146,9 @@ export default function AnalysisPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Analisi AI</h1>
+          <h1 className="text-2xl font-bold">Analisi Portafoglio</h1>
           <p className="text-muted-foreground">
-            Approfondimenti e analisi di mercato con intelligenza artificiale
+            Approfondimenti e analisi del tuo portafoglio con intelligenza artificiale
           </p>
         </div>
         <div className="grid gap-6 lg:grid-cols-3">
@@ -185,9 +185,9 @@ export default function AnalysisPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Analisi AI</h1>
+          <h1 className="text-2xl font-bold">Analisi Portafoglio</h1>
           <p className="text-muted-foreground">
-            Approfondimenti e analisi di mercato con intelligenza artificiale
+            Approfondimenti e analisi del tuo portafoglio con intelligenza artificiale
           </p>
         </div>
         <Button onClick={() => setWizardOpen(true)}>

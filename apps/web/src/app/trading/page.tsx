@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { TradingSurvey } from "@/components/trading/trading-survey";
@@ -192,7 +193,18 @@ export default function TradingPage() {
   };
 
   const handleRemove = async (id: string) => {
-    await api.removeTradingAsset(id);
+    try {
+      await api.removeTradingAsset(id);
+    } catch (err: any) {
+      // Se l'asset non esiste più (404), lo rimuoviamo comunque dalla lista locale
+      if (err.message?.includes("not found") || err.message?.includes("404")) {
+        console.warn(`Asset ${id} not found on server, removing from local list`);
+      } else {
+        console.error("Error removing trading asset:", err);
+        alert(err.message || "Errore durante la rimozione dell'asset");
+        return; // Non aggiornare la lista se c'è un errore diverso da 404
+      }
+    }
     await fetchData();
   };
 
@@ -675,6 +687,9 @@ export default function TradingPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Aggiungi Asset al Trading</DialogTitle>
+            <DialogDescription>
+              Cerca e aggiungi asset alla tua watchlist di trading
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="relative">
@@ -753,6 +768,9 @@ export default function TradingPage() {
               <Wallet className="h-5 w-5" />
               Gestisci Saldo Trading
             </DialogTitle>
+            <DialogDescription>
+              Deposita o preleva fondi dal tuo saldo trading
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="text-center">
@@ -813,7 +831,7 @@ export default function TradingPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              Suggerimenti Analisi AI
+              Suggerimenti AI
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 mt-4">

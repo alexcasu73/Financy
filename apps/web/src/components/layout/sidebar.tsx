@@ -18,10 +18,10 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/portfolio", label: "Portafoglio", icon: Briefcase },
+  { href: "/analysis", label: "Analisi Portafoglio", icon: Brain },
   { href: "/assets", label: "Asset", icon: BarChart3 },
   { href: "/trading", label: "Trading", icon: LineChart },
   { href: "/alerts", label: "Alert", icon: Bell },
-  { href: "/analysis", label: "Analisi AI", icon: Brain },
   { href: "/news", label: "Notizie", icon: Newspaper },
   { href: "/settings", label: "Impostazioni", icon: Settings },
 ];
