@@ -468,10 +468,10 @@ export async function tradingRoutes(fastify: FastifyInstance) {
   fastify.post("/api/trading/analyze", async (request, reply) => {
     try {
       // Call n8n webhook to analyze trading assets
-      const n8nUrl = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
-      fastify.log.info(`Calling n8n webhook at ${n8nUrl}/analyze-assets for user ${request.user.id}`);
+      const n8nUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
+      fastify.log.info(`Calling n8n webhook at ${n8nUrl}/webhook/analyze-assets for user ${request.user.id}`);
 
-      const response = await fetch(`${n8nUrl}/analyze-assets`, {
+      const response = await fetch(`${n8nUrl}/webhook/analyze-assets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: request.user.id }),
@@ -532,10 +532,10 @@ export async function tradingRoutes(fastify: FastifyInstance) {
   // POST /api/trading/suggestions/generate - Generate new suggestions via n8n
   fastify.post("/api/trading/suggestions/generate", async (request, reply) => {
     try {
-      const n8nUrl = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
-      fastify.log.info(`Calling n8n workflow at ${n8nUrl}/trading-suggestions for user ${request.user.id}`);
+      const n8nUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
+      fastify.log.info(`Calling n8n workflow at ${n8nUrl}/webhook/trading-suggestions for user ${request.user.id}`);
 
-      const response = await fetch(`${n8nUrl}/trading-suggestions`, {
+      const response = await fetch(`${n8nUrl}/webhook/trading-suggestions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: request.user.id }),

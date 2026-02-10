@@ -17,14 +17,14 @@ const generateSchema = z.object({
 });
 
 export async function alertSuggestionRoutes(fastify: FastifyInstance) {
-  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
+  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
 
   // POST /api/alert-suggestions/trigger — trigger n8n workflow to refresh suggestions
   fastify.post("/api/alert-suggestions/trigger", async (request, reply) => {
     try {
       // Call n8n webhook to trigger alert suggestions workflow
       // The workflow is scheduled but can also be triggered manually
-      const response = await fetch(`${n8nWebhookUrl}/alert-suggestions`, {
+      const response = await fetch(`${n8nWebhookUrl}/webhook/alert-suggestions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ manual: true }),

@@ -4,12 +4,12 @@ import { translateToItalian } from "../services/translation.js";
 
 export async function newsRoutes(fastify: FastifyInstance) {
   const newsService = new NewsService(fastify);
-  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
+  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
 
   // POST /api/news/trigger - trigger n8n workflow
   fastify.post("/api/news/trigger", async (request, reply) => {
     try {
-      const response = await fetch(`${n8nWebhookUrl}/import-news`, {
+      const response = await fetch(`${n8nWebhookUrl}/webhook/import-news`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ manual: true }),

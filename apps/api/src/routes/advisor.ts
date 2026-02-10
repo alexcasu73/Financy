@@ -24,11 +24,13 @@ export async function advisorRoutes(fastify: FastifyInstance) {
     try {
       // Call n8n workflow for AI-powered investment search
       const n8nUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
+      // Use production webhook URL
       const webhookPath = "/webhook/advisor-search";
 
-      fastify.log.info({ query, userId: request.user.id }, "Calling n8n advisor search workflow");
+      const fullUrl = `${n8nUrl}${webhookPath}`;
+      fastify.log.info({ query, userId: request.user.id, url: fullUrl }, "Calling n8n advisor search workflow");
 
-      const response = await fetch(`${n8nUrl}${webhookPath}`, {
+      const response = await fetch(fullUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -22,7 +22,7 @@ const requestSchema = z.object({
 
 export async function analysisRoutes(fastify: FastifyInstance) {
   // n8n webhook URL
-  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
+  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
 
   // Internal endpoint for n8n workflow to save analysis (NO AUTH - uses internal key)
   const saveAnalysisSchema = z.object({
@@ -150,7 +150,7 @@ export async function analysisRoutes(fastify: FastifyInstance) {
     // Call n8n webhook for ALL analysis types
     fastify.log.info(`Calling n8n generate-analysis for type: ${type}, user: ${user.id}`);
 
-    const response = await fetch(`${n8nWebhookUrl}/generate-analysis`, {
+    const response = await fetch(`${n8nWebhookUrl}/webhook/generate-analysis`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -11,88 +11,126 @@
       "id": "webhook-node",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
+      "typeVersion": 1.1,
       "position": [250, 300]
     },
     {
       "parameters": {
-        "model": "gpt-4o",
-        "options": {
-          "temperature": 0.7,
-          "maxTokens": 2000
-        },
+        "authentication": "apiKey",
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o",
         "messages": {
           "values": [
             {
               "role": "system",
-              "content": "You are an expert investment advisor. Analyze the user's investment request and extract key criteria:\n- Preferred sectors (e.g., technology, healthcare, finance)\n- Risk tolerance (low, medium, high)\n- Time horizon (short <1yr, medium 1-5yr, long >5yr)\n- Geography preference (US, EU, global)\n- Company size preference (large-cap, mid-cap, small-cap)\n- Investment style (growth, value, dividend)\n- Any specific themes or trends\n\nReturn a JSON object with these fields:\nsectors: array of sector names\nriskLevel: \"low\" | \"medium\" | \"high\"\ntimeHorizon: \"short\" | \"medium\" | \"long\"\ngeography: array of regions\nmarketCap: \"large\" | \"mid\" | \"small\" | \"any\"\nstyle: \"growth\" | \"value\" | \"dividend\" | \"balanced\"\nthemes: array of investment themes\nsearchKeywords: array of keywords to search for in asset names/descriptions"
+              "content": "Extract investment criteria from user request and return ONLY a JSON object (no markdown).\n\nSector mapping:\n- tech/tecnologia/technology → \"Technology\"\n- salute/healthcare → \"Healthcare\"\n- finanza/finance/banking/banche → \"Financial Services\"\n- energia/energy → \"Energy\"\n- consumer/consumo → \"Consumer Cyclical\"\n\nAsset types: \"stock\", \"etf\", \"crypto\"\nRisk: \"low\", \"medium\", \"high\", or null\n\nResponse format:\n{\"sectors\":[],\"assetTypes\":[],\"riskLevel\":null,\"keywords\":[]}\n\nExamples:\n\"tech\" → {\"sectors\":[\"Technology\"],\"assetTypes\":[\"stock\",\"etf\"],\"riskLevel\":null,\"keywords\":[]}\n\"crypto\" → {\"sectors\":[],\"assetTypes\":[\"crypto\"],\"riskLevel\":null,\"keywords\":[]}"
             },
             {
               "role": "user",
-              "content": "={{ $json.query }}"
+              "content": "{{ $json.body.query }}"
             }
           ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500
         }
       },
-      "id": "openai-analyze",
-      "name": "OpenAI - Analyze Query",
+      "id": "extract-criteria",
+      "name": "AI - Extract Criteria",
       "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.3,
-      "position": [450, 300]
+      "typeVersion": 1.4,
+      "position": [450, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response and build SQL query\nconst webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.item.json;\n\n// Extract criteria from AI response\nlet criteria;\ntry {\n  const content = aiResponse.output || aiResponse.text || aiResponse.response || JSON.stringify(aiResponse);\n  const cleaned = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  criteria = JSON.parse(cleaned);\n} catch (e) {\n  console.error('Failed to parse AI criteria:', e);\n  criteria = { sectors: [], assetTypes: ['stock', 'etf'], riskLevel: null, keywords: [] };\n}\n\n// Build WHERE clause\nlet whereConditions = [];\nlet params = [];\n\n// Asset types filter\nif (criteria.assetTypes && criteria.assetTypes.length > 0) {\n  const types = criteria.assetTypes.map(t => `'${t}'`).join(',');\n  whereConditions.push(`a.type::text IN (${types})`);\n} else {\n  whereConditions.push(\"a.type::text IN ('stock', 'etf', 'crypto')\");\n}\n\n// Price filter\nwhereConditions.push('a.current_price > 0');\n\n// Sectors filter\nif (criteria.sectors && criteria.sectors.length > 0) {\n  const sectors = criteria.sectors.map(s => `'${s}'`).join(',');\n  whereConditions.push(`(a.sector IN (${sectors}) OR a.sector IS NULL)`);\n}\n\n// Keywords filter (search in name or symbol)\nif (criteria.keywords && criteria.keywords.length > 0) {\n  const keywordConditions = criteria.keywords.map(kw => \n    `(LOWER(a.name) LIKE '%${kw.toLowerCase()}%' OR LOWER(a.symbol) LIKE '%${kw.toLowerCase()}%')`\n  ).join(' OR ');\n  whereConditions.push(`(${keywordConditions})`);\n}\n\nconst whereClause = whereConditions.join(' AND ');\n\n// Build ORDER BY - prioritize stocks with matching sectors\nlet orderBy = `\n  CASE \n    WHEN a.sector IS NOT NULL THEN 0\n    ELSE 1\n  END,\n  a.market_cap DESC NULLS LAST,\n  a.volume DESC\n`;\n\nif (criteria.sectors && criteria.sectors.length > 0) {\n  const sectorCases = criteria.sectors.map((s, i) => \n    `WHEN a.sector = '${s}' THEN ${i}`\n  ).join(' ');\n  orderBy = `\n    CASE ${sectorCases} ELSE 100 END,\n    a.market_cap DESC NULLS LAST,\n    a.volume DESC\n  `;\n}\n\nconst query = `\nSELECT \n  a.id,\n  a.symbol,\n  a.name,\n  a.type::text as type,\n  a.sector,\n  a.exchange,\n  a.current_price,\n  a.currency,\n  a.change_percent,\n  a.market_cap,\n  a.volume\nFROM assets a\nWHERE ${whereClause}\nORDER BY ${orderBy}\nLIMIT 50\n`;\n\nreturn {\n  query,\n  criteria,\n  originalQuery: webhookData.query\n};"
+      },
+      "id": "build-query",
+      "name": "Build Dynamic Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT \n  a.id,\n  a.symbol,\n  a.name,\n  a.type,\n  a.sector,\n  a.exchange,\n  a.current_price,\n  a.currency,\n  a.change_percent,\n  a.market_cap,\n  a.volume\nFROM assets a\nWHERE a.type IN ('STOCK', 'ETF')\n  AND a.current_price > 0\n  AND (\n    '{{ $json.sectors.join(\"','\"  }}' = '' \n    OR LOWER(a.sector) = ANY(ARRAY[{{ $json.sectors.map(s => `'${s.toLowerCase()}'`).join(',') }}])\n  )\nORDER BY \n  CASE \n    WHEN a.volume > 1000000 THEN 1\n    WHEN a.volume > 100000 THEN 2\n    ELSE 3\n  END,\n  a.market_cap DESC NULLS LAST\nLIMIT 50",
+        "query": "={{ $json.query }}",
         "additionalFields": {}
       },
       "id": "postgres-search",
-      "name": "PostgreSQL - Search Assets",
+      "name": "Execute Query",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [650, 300],
+      "position": [850, 300],
       "credentials": {
         "postgres": {
-          "id": "postgres-financy",
+          "id": "1",
           "name": "Financy DB"
         }
       }
     },
     {
       "parameters": {
-        "model": "gpt-4o",
-        "options": {
-          "temperature": 0.7,
-          "maxTokens": 3000
-        },
+        "jsCode": "// Prepare data for final AI analysis\nconst queryData = $('Build Dynamic Query').item.json;\nconst assets = $input.all();\n\nif (assets.length === 0) {\n  return {\n    noResults: true,\n    originalQuery: queryData.originalQuery\n  };\n}\n\nconst assetsFormatted = assets.map(item => ({\n  symbol: item.json.symbol,\n  name: item.json.name,\n  type: item.json.type,\n  sector: item.json.sector || 'N/A',\n  price: item.json.current_price,\n  currency: item.json.currency,\n  change: item.json.change_percent\n}));\n\nreturn {\n  assets: JSON.stringify(assetsFormatted.slice(0, 30), null, 2),\n  assetCount: assets.length,\n  originalQuery: queryData.originalQuery,\n  criteria: queryData.criteria\n};"
+      },
+      "id": "prepare-for-ai",
+      "name": "Prepare for AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "apiKey",
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o",
         "messages": {
           "values": [
             {
               "role": "system",
-              "content": "You are an investment advisor. Based on the user's criteria and available assets, rank and explain why each asset matches their request.\n\nUser criteria: {{ $('OpenAI - Analyze Query').item.json }}\n\nFor each asset, provide:\n- symbol: asset symbol\n- reason: 2-3 sentences explaining why this matches their criteria\n- score: 0-100 confidence score\n- riskLevel: \"low\" | \"medium\" | \"high\"\n- expectedReturn: estimated annual return % (realistic)\n- timeHorizon: recommended holding period\n\nReturn top 10 matches as JSON array. Be specific about why each asset matches the user's request."
+              "content": "Sei un consulente finanziario esperto. Ti vengono forniti asset già filtrati in base alla richiesta dell'utente.\n\nIl tuo compito è:\n1. Selezionare i 10 MIGLIORI asset\n2. Spiegare perché ogni asset è adatto alla richiesta\n3. Dare un punteggio di confidenza\n\nPer ogni asset, restituisci:\n- symbol: simbolo dell'asset\n- reason: spiegazione dettagliata in italiano (2-3 frasi) di perché questo asset è perfetto per la richiesta\n- score: punteggio 0-100 (quanto è rilevante)\n- riskLevel: \"low\", \"medium\", \"high\"\n- expectedReturn: rendimento annuale stimato % (realistico)\n- timeHorizon: \"short\", \"medium\", \"long\"\n\nRestituisci SOLO un array JSON, senza markdown."
             },
             {
               "role": "user",
-              "content": "Available assets:\n{{ $json }}\n\nOriginal user query: {{ $('Webhook').item.json.query }}"
+              "content": "Richiesta originale: {{ $json.originalQuery }}\n\nAsset filtrati ({{ $json.assetCount }} trovati):\n{{ $json.assets }}\n\nSeleziona i 10 migliori e spiega perché matchano la richiesta."
             }
           ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 3000
         }
       },
-      "id": "openai-rank",
-      "name": "OpenAI - Rank & Explain",
+      "id": "rank-and-explain",
+      "name": "AI - Rank & Explain",
       "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.3,
-      "position": [850, 300]
+      "typeVersion": 1.4,
+      "position": [1250, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// Merge AI recommendations with asset data\nconst assets = $input.item.json;\nconst recommendations = JSON.parse($('OpenAI - Rank & Explain').item.json.choices[0].message.content);\n\nconst suggestions = recommendations.map(rec => {\n  const asset = assets.find(a => a.symbol === rec.symbol);\n  \n  if (!asset) return null;\n  \n  return {\n    id: asset.id,\n    symbol: asset.symbol,\n    name: asset.name,\n    currentPrice: parseFloat(asset.current_price || 0),\n    currency: asset.currency || 'EUR',\n    type: asset.type,\n    sector: asset.sector || 'N/A',\n    exchange: asset.exchange || 'N/A',\n    reason: rec.reason,\n    score: rec.score,\n    expectedReturn: rec.expectedReturn,\n    riskLevel: rec.riskLevel,\n    timeHorizon: rec.timeHorizon\n  };\n}).filter(Boolean);\n\nreturn { suggestions };"
+        "jsCode": "// Parse AI response and merge with full asset data\nconst allAssets = $('Execute Query').all();\nconst prepData = $('Prepare for AI').item.json;\nconst aiResponse = $input.item.json;\n\n// Check if no results\nif (prepData.noResults) {\n  return { \n    suggestions: [],\n    message: `Nessun asset trovato per la tua ricerca: \"${prepData.originalQuery}\". Prova con criteri diversi.`\n  };\n}\n\n// Parse AI suggestions\nlet aiSuggestions = [];\ntry {\n  const content = aiResponse.output || aiResponse.text || aiResponse.response || JSON.stringify(aiResponse);\n  const cleaned = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  aiSuggestions = JSON.parse(cleaned);\n  \n  if (!Array.isArray(aiSuggestions)) {\n    aiSuggestions = [aiSuggestions];\n  }\n} catch (e) {\n  console.error('Failed to parse AI suggestions:', e);\n  // Fallback: return first 10 assets\n  aiSuggestions = allAssets.slice(0, 10).map((asset, i) => ({\n    symbol: asset.json.symbol,\n    reason: `Asset selezionato in base ai criteri di ricerca`,\n    score: 80 - (i * 5),\n    riskLevel: 'medium',\n    expectedReturn: 8,\n    timeHorizon: 'medium'\n  }));\n}\n\n// Merge with full asset data\nconst suggestions = aiSuggestions.map(suggestion => {\n  const asset = allAssets.find(a => a.json.symbol === suggestion.symbol);\n  \n  if (!asset) return null;\n  \n  return {\n    id: asset.json.id,\n    symbol: asset.json.symbol,\n    name: asset.json.name,\n    currentPrice: parseFloat(asset.json.current_price || 0),\n    currency: asset.json.currency || 'EUR',\n    type: asset.json.type || 'stock',\n    sector: asset.json.sector || 'N/A',\n    exchange: asset.json.exchange || 'N/A',\n    reason: suggestion.reason || 'Match trovato in base alla tua ricerca',\n    score: suggestion.score || 50,\n    expectedReturn: suggestion.expectedReturn,\n    riskLevel: suggestion.riskLevel || 'medium',\n    timeHorizon: suggestion.timeHorizon || 'medium'\n  };\n}).filter(Boolean);\n\nreturn { suggestions };"
       },
-      "id": "code-merge",
-      "name": "Code - Merge Results",
+      "id": "merge-results",
+      "name": "Merge Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1050, 300]
+      "position": [1450, 300]
     },
     {
       "parameters": {
@@ -103,7 +141,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1250, 300]
+      "position": [1650, 300]
     }
   ],
   "connections": {
@@ -111,47 +149,69 @@
       "main": [
         [
           {
-            "node": "OpenAI - Analyze Query",
+            "node": "AI - Extract Criteria",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI - Analyze Query": {
+    "AI - Extract Criteria": {
       "main": [
         [
           {
-            "node": "PostgreSQL - Search Assets",
+            "node": "Build Dynamic Query",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "PostgreSQL - Search Assets": {
+    "Build Dynamic Query": {
       "main": [
         [
           {
-            "node": "OpenAI - Rank & Explain",
+            "node": "Execute Query",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI - Rank & Explain": {
+    "Execute Query": {
       "main": [
         [
           {
-            "node": "Code - Merge Results",
+            "node": "Prepare for AI",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Merge Results": {
+    "Prepare for AI": {
+      "main": [
+        [
+          {
+            "node": "AI - Rank & Explain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Rank & Explain": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
       "main": [
         [
           {
@@ -167,10 +227,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "1",
-  "id": "advisor-search",
+  "versionId": "3",
+  "id": "advisor-search-v3",
   "meta": {
-    "instanceId": "financy-advisor"
+    "instanceId": "financy-advisor-v3"
   },
   "tags": []
 }

@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://127.0.0.1:5678/webhook";
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://localhost:5678";
 
 export class SchedulerService {
   private fastify: FastifyInstance;
@@ -108,7 +108,7 @@ export class SchedulerService {
 
   private async triggerAnalysis(userId: string, profileId: string) {
     try {
-      const response = await fetch(`${N8N_WEBHOOK_URL}/analyze-assets`, {
+      const response = await fetch(`${N8N_WEBHOOK_URL}/webhook/analyze-assets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
@@ -131,7 +131,7 @@ export class SchedulerService {
 
   private async triggerSuggestions(userId: string, profileId: string) {
     try {
-      const response = await fetch(`${N8N_WEBHOOK_URL}/trading-suggestions`, {
+      const response = await fetch(`${N8N_WEBHOOK_URL}/webhook/trading-suggestions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
@@ -180,7 +180,7 @@ export class SchedulerService {
 
   private async triggerAlertSuggestions(userId: string, settingsId: string) {
     try {
-      const response = await fetch(`${N8N_WEBHOOK_URL}/alert-suggestions`, {
+      const response = await fetch(`${N8N_WEBHOOK_URL}/webhook/alert-suggestions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
