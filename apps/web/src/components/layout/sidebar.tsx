@@ -12,6 +12,7 @@ import {
   Settings,
   TrendingUp,
   LineChart,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/portfolio", label: "Portafoglio", icon: Briefcase },
   { href: "/analysis", label: "Analisi Portafoglio", icon: Brain },
+  { href: "/advisor", label: "AI Advisor", icon: Sparkles },
   { href: "/assets", label: "Asset", icon: BarChart3 },
   { href: "/trading", label: "Trading", icon: LineChart },
   { href: "/alerts", label: "Alert", icon: Bell },

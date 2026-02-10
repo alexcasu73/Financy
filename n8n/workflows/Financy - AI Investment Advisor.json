@@ -1,0 +1,176 @@
+{
+  "name": "Financy - AI Investment Advisor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "advisor-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 2000
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an expert investment advisor. Analyze the user's investment request and extract key criteria:\n- Preferred sectors (e.g., technology, healthcare, finance)\n- Risk tolerance (low, medium, high)\n- Time horizon (short <1yr, medium 1-5yr, long >5yr)\n- Geography preference (US, EU, global)\n- Company size preference (large-cap, mid-cap, small-cap)\n- Investment style (growth, value, dividend)\n- Any specific themes or trends\n\nReturn a JSON object with these fields:\nsectors: array of sector names\nriskLevel: \"low\" | \"medium\" | \"high\"\ntimeHorizon: \"short\" | \"medium\" | \"long\"\ngeography: array of regions\nmarketCap: \"large\" | \"mid\" | \"small\" | \"any\"\nstyle: \"growth\" | \"value\" | \"dividend\" | \"balanced\"\nthemes: array of investment themes\nsearchKeywords: array of keywords to search for in asset names/descriptions"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.query }}"
+            }
+          ]
+        }
+      },
+      "id": "openai-analyze",
+      "name": "OpenAI - Analyze Query",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  a.id,\n  a.symbol,\n  a.name,\n  a.type,\n  a.sector,\n  a.exchange,\n  a.current_price,\n  a.currency,\n  a.change_percent,\n  a.market_cap,\n  a.volume\nFROM assets a\nWHERE a.type IN ('STOCK', 'ETF')\n  AND a.current_price > 0\n  AND (\n    '{{ $json.sectors.join(\"','\"  }}' = '' \n    OR LOWER(a.sector) = ANY(ARRAY[{{ $json.sectors.map(s => `'${s.toLowerCase()}'`).join(',') }}])\n  )\nORDER BY \n  CASE \n    WHEN a.volume > 1000000 THEN 1\n    WHEN a.volume > 100000 THEN 2\n    ELSE 3\n  END,\n  a.market_cap DESC NULLS LAST\nLIMIT 50",
+        "additionalFields": {}
+      },
+      "id": "postgres-search",
+      "name": "PostgreSQL - Search Assets",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-financy",
+          "name": "Financy DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 3000
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an investment advisor. Based on the user's criteria and available assets, rank and explain why each asset matches their request.\n\nUser criteria: {{ $('OpenAI - Analyze Query').item.json }}\n\nFor each asset, provide:\n- symbol: asset symbol\n- reason: 2-3 sentences explaining why this matches their criteria\n- score: 0-100 confidence score\n- riskLevel: \"low\" | \"medium\" | \"high\"\n- expectedReturn: estimated annual return % (realistic)\n- timeHorizon: recommended holding period\n\nReturn top 10 matches as JSON array. Be specific about why each asset matches the user's request."
+            },
+            {
+              "role": "user",
+              "content": "Available assets:\n{{ $json }}\n\nOriginal user query: {{ $('Webhook').item.json.query }}"
+            }
+          ]
+        }
+      },
+      "id": "openai-rank",
+      "name": "OpenAI - Rank & Explain",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge AI recommendations with asset data\nconst assets = $input.item.json;\nconst recommendations = JSON.parse($('OpenAI - Rank & Explain').item.json.choices[0].message.content);\n\nconst suggestions = recommendations.map(rec => {\n  const asset = assets.find(a => a.symbol === rec.symbol);\n  \n  if (!asset) return null;\n  \n  return {\n    id: asset.id,\n    symbol: asset.symbol,\n    name: asset.name,\n    currentPrice: parseFloat(asset.current_price || 0),\n    currency: asset.currency || 'EUR',\n    type: asset.type,\n    sector: asset.sector || 'N/A',\n    exchange: asset.exchange || 'N/A',\n    reason: rec.reason,\n    score: rec.score,\n    expectedReturn: rec.expectedReturn,\n    riskLevel: rec.riskLevel,\n    timeHorizon: rec.timeHorizon\n  };\n}).filter(Boolean);\n\nreturn { suggestions };"
+      },
+      "id": "code-merge",
+      "name": "Code - Merge Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Analyze Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Analyze Query": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Search Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Search Assets": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Rank & Explain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Rank & Explain": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "advisor-search",
+  "meta": {
+    "instanceId": "financy-advisor"
+  },
+  "tags": []
+}
