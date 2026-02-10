@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatEur } from "@/lib/utils";
 import {
   Sparkles,
   TrendingUp,
@@ -40,6 +40,7 @@ export default function AdvisorPage() {
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<InvestmentSuggestion[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [usdToEur, setUsdToEur] = useState(0.92); // Default rate, will be updated
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -98,6 +99,13 @@ export default function AdvisorPage() {
       default:
         return "N/A";
     }
+  };
+
+  const convertToEur = (price: number, currency: string) => {
+    if (currency === "EUR") return price;
+    if (currency === "USD") return price * usdToEur;
+    // For other currencies, use USD rate as approximation
+    return price * usdToEur;
   };
 
   return (
@@ -188,8 +196,13 @@ export default function AdvisorPage() {
                     </div>
                     <div className="text-right">
                       <p className="font-semibold">
-                        {formatCurrency(suggestion.currentPrice, suggestion.currency)}
+                        {formatEur(convertToEur(suggestion.currentPrice, suggestion.currency))}
                       </p>
+                      {suggestion.currency !== "EUR" && (
+                        <p className="text-xs text-muted-foreground">
+                          {formatCurrency(suggestion.currentPrice, suggestion.currency)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
