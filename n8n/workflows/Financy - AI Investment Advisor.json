@@ -85,14 +85,48 @@
     },
     {
       "parameters": {
-        "jsCode": "// Prepare data for final AI analysis with market metrics\nconst queryData = $('Build Dynamic Query').item.json;\nconst assets = $input.all();\n\nif (assets.length === 0) {\n  return {\n    noResults: true,\n    originalQuery: queryData.originalQuery\n  };\n}\n\n// Format assets with FULL market data\nconst assetsFormatted = assets.map(item => {\n  const marketCap = item.json.market_cap;\n  const volume = item.json.volume;\n  const changePercent = item.json.change_percent;\n  \n  // Calculate market cap category\n  let capCategory = 'Unknown';\n  if (marketCap) {\n    if (marketCap > 200000000000) capCategory = 'Mega Cap (>200B)';\n    else if (marketCap > 10000000000) capCategory = 'Large Cap (10B-200B)';\n    else if (marketCap > 2000000000) capCategory = 'Mid Cap (2B-10B)';\n    else if (marketCap > 300000000) capCategory = 'Small Cap (300M-2B)';\n    else capCategory = 'Micro Cap (<300M)';\n  }\n  \n  return {\n    symbol: item.json.symbol,\n    name: item.json.name,\n    type: item.json.type,\n    sector: item.json.sector || 'N/A',\n    exchange: item.json.exchange || 'N/A',\n    price: item.json.current_price,\n    currency: item.json.currency,\n    // MARKET METRICS\n    changePercent: changePercent || 0,\n    marketCap: marketCap || 0,\n    marketCapFormatted: marketCap ? `$${(marketCap / 1000000000).toFixed(2)}B` : 'N/A',\n    capCategory: capCategory,\n    volume: volume || 0,\n    volumeFormatted: volume ? volume.toLocaleString() : 'N/A'\n  };\n});\n\nreturn {\n  assets: JSON.stringify(assetsFormatted.slice(0, 30), null, 2),\n  assetCount: assets.length,\n  originalQuery: queryData.originalQuery,\n  criteria: queryData.criteria\n};"
+        "jsCode": "// Calculate historical performance using price_history data\nconst assets = $input.all();\nconst queryData = $('Build Dynamic Query').item.json;\n\nif (assets.length === 0) {\n  return {\n    noResults: true,\n    originalQuery: queryData.originalQuery\n  };\n}\n\n// Get all asset IDs for historical query\nconst assetIds = assets.map(a => `'${a.json.id}'`).join(',');\n\n// Single query that gets assets WITH historical performance\nconst combinedQuery = `\nWITH asset_list AS (\n  SELECT id, symbol, name, type::text, sector, exchange, \n         current_price, currency, change_percent, market_cap, volume\n  FROM assets\n  WHERE id IN (${assetIds})\n),\nlatest_prices AS (\n  SELECT \n    asset_id,\n    date,\n    close,\n    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY date DESC) as rn\n  FROM price_history\n  WHERE asset_id IN (${assetIds})\n    AND date >= CURRENT_DATE - INTERVAL '90 days'\n),\nprice_7d AS (\n  SELECT asset_id, close as close_7d FROM latest_prices WHERE rn = 7\n),\nprice_30d AS (\n  SELECT asset_id, close as close_30d FROM latest_prices WHERE rn = 30\n),\nprice_90d AS (\n  SELECT asset_id, close as close_90d FROM latest_prices WHERE rn = 90\n),\ncurrent_price_hist AS (\n  SELECT asset_id, close as close_current FROM latest_prices WHERE rn = 1\n),\nvolatility AS (\n  SELECT \n    asset_id,\n    STDDEV(close) / NULLIF(AVG(close), 0) * 100 as volatility_pct\n  FROM latest_prices\n  WHERE rn <= 30\n  GROUP BY asset_id\n)\nSELECT \n  a.*,\n  CASE WHEN p7.close_7d > 0 \n    THEN ((a.current_price - p7.close_7d) / p7.close_7d * 100) \n    ELSE NULL END as perf_7d,\n  CASE WHEN p30.close_30d > 0 \n    THEN ((a.current_price - p30.close_30d) / p30.close_30d * 100) \n    ELSE NULL END as perf_30d,\n  CASE WHEN p90.close_90d > 0 \n    THEN ((a.current_price - p90.close_90d) / p90.close_90d * 100) \n    ELSE NULL END as perf_90d,\n  v.volatility_pct\nFROM asset_list a\nLEFT JOIN price_7d p7 ON a.id = p7.asset_id\nLEFT JOIN price_30d p30 ON a.id = p30.asset_id\nLEFT JOIN price_90d p90 ON a.id = p90.asset_id\nLEFT JOIN volatility v ON a.id = v.asset_id\n`;\n\nreturn { \n  combinedQuery,\n  originalQuery: queryData.originalQuery,\n  criteria: queryData.criteria\n};"
+      },
+      "id": "build-historical-query",
+      "name": "Build Historical Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.combinedQuery }}",
+        "options": {}
+      },
+      "id": "fetch-historical-data",
+      "name": "Fetch Assets With History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        640,
+        -96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "4TJGRUqJn4Ecu5op",
+          "name": "Financy DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format assets with historical performance data\nconst assetsWithHistory = $input.all();\nconst queryBuilderData = $input.first().json;\n\nif (assetsWithHistory.length === 0) {\n  return {\n    noResults: true,\n    originalQuery: queryBuilderData.originalQuery\n  };\n}\n\n// Format assets with FULL market data + historical performance\nconst assetsFormatted = assetsWithHistory.map(item => {\n  const data = item.json;\n  const marketCap = data.market_cap;\n  const volume = data.volume;\n  const changePercent = data.change_percent;\n  \n  // Calculate market cap category\n  let capCategory = 'Unknown';\n  if (marketCap) {\n    if (marketCap > 200000000000) capCategory = 'Mega Cap (>200B)';\n    else if (marketCap > 10000000000) capCategory = 'Large Cap (10B-200B)';\n    else if (marketCap > 2000000000) capCategory = 'Mid Cap (2B-10B)';\n    else if (marketCap > 300000000) capCategory = 'Small Cap (300M-2B)';\n    else capCategory = 'Micro Cap (<300M)';\n  }\n  \n  // Determine trend based on multi-timeframe performance\n  let trend = 'Neutral';\n  const perf7d = data.perf_7d || 0;\n  const perf30d = data.perf_30d || 0;\n  const perf90d = data.perf_90d || 0;\n  \n  if (perf7d > 0 && perf30d > 0 && perf90d > 0) {\n    trend = 'Strong Uptrend';\n  } else if (perf7d > 0 && perf30d > 0) {\n    trend = 'Uptrend';\n  } else if (perf7d < 0 && perf30d < 0 && perf90d < 0) {\n    trend = 'Strong Downtrend';\n  } else if (perf7d < 0 && perf30d < 0) {\n    trend = 'Downtrend';\n  } else if (perf7d > 0 && perf30d < 0) {\n    trend = 'Recovering';\n  } else if (perf7d < 0 && perf30d > 0) {\n    trend = 'Pullback';\n  }\n  \n  return {\n    symbol: data.symbol,\n    name: data.name,\n    type: data.type,\n    sector: data.sector || 'N/A',\n    exchange: data.exchange || 'N/A',\n    price: data.current_price,\n    currency: data.currency,\n    // CURRENT MARKET METRICS\n    changePercent: changePercent || 0,\n    marketCap: marketCap || 0,\n    marketCapFormatted: marketCap ? `$${(marketCap / 1000000000).toFixed(2)}B` : 'N/A',\n    capCategory: capCategory,\n    volume: volume || 0,\n    volumeFormatted: volume ? volume.toLocaleString() : 'N/A',\n    // HISTORICAL PERFORMANCE\n    perf7d: perf7d ? perf7d.toFixed(2) + '%' : 'N/A',\n    perf30d: perf30d ? perf30d.toFixed(2) + '%' : 'N/A',\n    perf90d: perf90d ? perf90d.toFixed(2) + '%' : 'N/A',\n    volatility: data.volatility_pct ? data.volatility_pct.toFixed(2) + '%' : 'N/A',\n    trend: trend\n  };\n});\n\nreturn {\n  assets: JSON.stringify(assetsFormatted.slice(0, 30), null, 2),\n  assetCount: assetsFormatted.length,\n  originalQuery: queryBuilderData.originalQuery,\n  criteria: queryBuilderData.criteria\n};"
       },
       "id": "dfd35ad7-e56d-4d6b-a2d7-adc8948bd29d",
       "name": "Prepare for AI",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        640,
+        840,
         -144
       ]
     },
@@ -102,11 +136,11 @@
         "messages": {
           "values": [
             {
-              "content": "Sei un consulente finanziario esperto. Ti vengono forniti asset con DATI DI MERCATO REALI.\n\nAnalizza attentamente:\n- **changePercent**: performance recente (positivo = in crescita, negativo = in calo)\n- **marketCap**: capitalizzazione (Mega/Large cap = stabili, Small/Micro cap = rischiosi ma potenziale alto)\n- **volume**: liquidità (alto = molto tradato, basso = illiquido/rischioso)\n- **capCategory**: categoria di capitalizzazione\n\nIl tuo compito:\n1. Selezionare i 10 MIGLIORI asset basandoti su:\n   - Rilevanza alla richiesta utente\n   - Performance recente (changePercent)\n   - Solidità (marketCap e capCategory)\n   - Liquidità (volume)\n   - Bilanciamento rischio/rendimento\n\n2. Per ogni asset spiega:\n   - Perché è adatto alla richiesta\n   - Come i dati di mercato supportano la scelta\n   - Rischi e opportunità basati sui numeri reali\n\nPer ogni asset, restituisci:\n- symbol: simbolo dell'asset\n- reason: spiegazione dettagliata in italiano (2-3 frasi) che DEVE menzionare i dati di mercato (es: \"in crescita del X%\", \"capitalizzazione di Y miliardi\", \"alto volume di scambi\")\n- score: punteggio 0-100 (basato su quanto matcha la richiesta E qualità metriche)\n- riskLevel: \"low\", \"medium\", \"high\" (considera capCategory e changePercent)\n- expectedReturn: rendimento annuale stimato % (realistico, basato su changePercent e sector)\n- timeHorizon: \"short\", \"medium\", \"long\"\n\nRestituisci SOLO un array JSON, senza markdown.",
+              "content": "Sei un consulente finanziario esperto. Ti vengono forniti asset con DATI DI MERCATO REALI e PERFORMANCE STORICA (quando disponibile).\n\n**IMPORTANTE**: Alcuni asset potrebbero NON avere dati storici (perf7d/30d/90d/volatility = \"N/A\"). In questi casi, valuta SOLO sui dati disponibili (market cap, volume, sector, changePercent) senza penalizzare eccessivamente.\n\nAnalizza attentamente:\n\n**MARKET DATA (sempre disponibili):**\n- **changePercent**: variazione giornaliera\n- **marketCap** & **capCategory**: dimensione e stabilità (Mega/Large = stabili, Small/Micro = rischiosi)\n- **volume**: liquidità e interesse del mercato\n- **sector**: settore di appartenenza\n\n**HISTORICAL PERFORMANCE (opzionale, potrebbe essere N/A):**\n- **perf7d**: performance ultimi 7 giorni (trend immediato)\n- **perf30d**: performance ultimi 30 giorni (trend mensile)\n- **perf90d**: performance ultimi 90 giorni (trend trimestrale)\n- **volatility**: volatilità % (bassa = stabile, alta = rischioso)\n- **trend**: analisi automatica del trend\n\n**STRATEGIA DI SELEZIONE:**\n\n**CON dati storici disponibili:**\n1. Preferisci momentum positivo (perf7d > 0 E perf30d > 0)\n2. Evita spike isolati, preferisci crescita graduale\n3. Valuta volatilità appropriata al rischio richiesto\n4. Identifica inversioni di trend intelligenti\n\n**SENZA dati storici (N/A):**\n1. Valuta su market cap (stabilità), volume (liquidità), sector (rilevanza)\n2. Usa changePercent come unico indicatore di performance\n3. Assegna score 40-70 (ridotto ma non pessimo)\n4. Menziona esplicitamente nel reason che mancano dati storici\n\nIl tuo compito:\n1. Selezionare i 10 MIGLIORI asset considerando:\n   - Rilevanza alla richiesta utente (PRIORITÀ)\n   - Dati storici se disponibili (bonus, non requisito)\n   - Solidità (market cap e liquidità)\n   - Bilanciamento rischio/rendimento\n\n2. Per ogni asset spiega:\n   - Perché è adatto alla richiesta\n   - SE disponibili: performance storiche e trend\n   - SE non disponibili: valutazione su market cap, sector, volume\n\nPer ogni asset, restituisci:\n- symbol: simbolo dell'asset\n- reason: spiegazione dettagliata in italiano (2-3 frasi):\n  * CON storico: menziona performance, trend, volatilità\n  * SENZA storico: \"Dati storici non disponibili. Valutazione basata su [market cap/sector/volume]. [Motivazione rilevanza alla richiesta].\"\n- score: punteggio 0-100:\n  * CON storico completo: 70-100 (se ottimo match)\n  * SENZA storico: 40-70 (ridotto ma accettabile se rilevante)\n  * Irrilevante: 0-40\n- riskLevel: \"low\", \"medium\", \"high\" (basato su dati disponibili)\n- expectedReturn: rendimento annuale stimato % (conservativo se manca storico)\n- timeHorizon: \"short\", \"medium\", \"long\"\n\nRestituisci SOLO un array JSON, senza markdown.",
               "role": "system"
             },
             {
-              "content": "=Richiesta originale: {{ $json.originalQuery }}\n\nAsset con dati di mercato ({{ $json.assetCount }} trovati):\n{{ $json.assets }}\n\nAnalizza i dati di mercato e seleziona i 10 migliori asset."
+              "content": "=Richiesta originale: {{ $json.originalQuery }}\n\nAsset con dati di mercato E performance storica ({{ $json.assetCount }} trovati):\n{{ $json.assets }}\n\nAnalizza attentamente le performance storiche (7d, 30d, 90d), il trend, la volatilità e seleziona i 10 migliori asset."
             }
           ]
         },
@@ -257,6 +291,28 @@
       "main": [
         [
           {
+            "node": "Build Historical Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Historical Query": {
+      "main": [
+        [
+          {
+            "node": "Fetch Assets With History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Assets With History": {
+      "main": [
+        [
+          {
             "node": "Prepare for AI",
             "type": "main",
             "index": 0
@@ -335,8 +391,8 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "6",
-  "id": "advisor-search-v6",
+  "versionId": "7",
+  "id": "advisor-search-v7",
   "meta": {
     "instanceId": "financy-advisor-working",
     "templateCredsSetupCompleted": true
