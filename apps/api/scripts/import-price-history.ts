@@ -3,14 +3,14 @@
  * Import Price History Script
  *
  * Populates the price_history table with historical OHLCV data
- * from Yahoo Finance API (via yahoofinance2 package)
+ * from Yahoo Finance API (via yahoo-finance2 package)
  *
  * Usage:
- *   npm install yahoofinance2
+ *   cd apps/api
  *   tsx scripts/import-price-history.ts [--days=90] [--symbols=AAPL,MSFT]
  */
 
-import { PrismaClient } from '../apps/api/node_modules/@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import yahooFinance from 'yahoo-finance2';
 
 const prisma = new PrismaClient();
@@ -45,6 +45,7 @@ async function importPriceHistory(options: ImportOptions = DEFAULT_OPTIONS) {
         },
         select: { id: true, symbol: true, type: true },
         orderBy: { marketCap: 'desc' },
+        take: 50, // Limit to top 50 for first run
       });
 
   console.log(`📊 Found ${assets.length} assets to import`);
