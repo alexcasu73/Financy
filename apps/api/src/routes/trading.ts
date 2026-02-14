@@ -30,6 +30,17 @@ const executeBuySchema = z.object({
   quantity: z.number().positive(),
 });
 
+const createSuggestionSchema = z.object({
+  assetId: z.string(),
+  reason: z.string(),
+  confidence: z.enum(["low", "medium", "high"]),
+  expectedProfit: z.number().optional(),
+  riskLevel: z.string().optional(),
+  timeframe: z.string().optional(),
+  status: z.enum(["pending", "accepted", "dismissed"]).default("pending"),
+  criteria: z.any().optional(),
+});
+
 export async function tradingRoutes(fastify: FastifyInstance) {
   const tradingService = new TradingService(fastify);
 
@@ -527,6 +538,126 @@ export async function tradingRoutes(fastify: FastifyInstance) {
   // GET /api/trading/suggestions - Get pending suggestions
   fastify.get("/api/trading/suggestions", async (request) => {
     return tradingService.getSuggestions(request.user.id);
+  });
+
+  // POST /api/trading/suggestions - Create suggestion from AI Advisor
+  fastify.post("/api/trading/suggestions", async (request, reply) => {
+    const parsed = createSuggestionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Validation error",
+        message: parsed.error.message
+      });
+    }
+
+    // Get user's trading profile
+    const profile = await fastify.prisma.tradingProfile.findUnique({
+      where: { userId: request.user.id },
+    });
+
+    if (!profile) {
+      return reply.status(404).send({
+        error: "Profile not found",
+        message: "Completa il questionario Trading prima di aggiungere asset al Trading."
+      });
+    }
+
+    // Check if asset already exists in TradingAssets
+    const existingTradingAsset = await fastify.prisma.tradingAsset.findUnique({
+      where: {
+        profileId_assetId: {
+          profileId: profile.id,
+          assetId: parsed.data.assetId,
+        },
+      },
+      include: { asset: true },
+    });
+
+    if (existingTradingAsset) {
+      return reply.status(400).send({
+        error: "Already exists",
+        message: `${existingTradingAsset.asset.symbol} è già nella tua lista Trading con status "${existingTradingAsset.status}".`
+      });
+    }
+
+    // Check if suggestion already exists
+    const existingSuggestion = await fastify.prisma.tradingSuggestion.findFirst({
+      where: {
+        profileId: profile.id,
+        assetId: parsed.data.assetId,
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (existingSuggestion && (existingSuggestion.status === "pending" || existingSuggestion.status === "accepted")) {
+      return reply.status(400).send({
+        error: "Already exists",
+        message: `Questo asset è già presente nei suggerimenti con status "${existingSuggestion.status}".`
+      });
+    }
+
+    // If status is "accepted", create both suggestion and trading asset
+    if (parsed.data.status === "accepted") {
+      // Create TradingAsset first
+      const tradingAsset = await tradingService.addAssetToTrading(
+        profile.id,
+        parsed.data.assetId
+      );
+
+      // Delete any old dismissed suggestions to avoid constraint issues
+      await fastify.prisma.tradingSuggestion.deleteMany({
+        where: {
+          profileId: profile.id,
+          assetId: parsed.data.assetId,
+          status: "dismissed",
+        },
+      });
+
+      // Create TradingSuggestion with accepted status
+      const suggestion = await fastify.prisma.tradingSuggestion.create({
+        data: {
+          profileId: profile.id,
+          assetId: parsed.data.assetId,
+          reason: parsed.data.reason,
+          confidence: parsed.data.confidence,
+          expectedProfit: parsed.data.expectedProfit,
+          riskLevel: parsed.data.riskLevel,
+          timeframe: parsed.data.timeframe,
+          status: "accepted",
+          criteria: parsed.data.criteria || {},
+          acceptedAt: new Date(),
+        },
+        include: { asset: true },
+      });
+
+      fastify.log.info(`Created trading asset from AI Advisor: ${suggestion.asset.symbol}`);
+
+      return reply.status(201).send({
+        suggestion,
+        tradingAsset,
+        message: `${suggestion.asset.symbol} aggiunto al Trading!`
+      });
+    }
+
+    // For non-accepted status, just create the suggestion
+    const suggestion = await fastify.prisma.tradingSuggestion.create({
+      data: {
+        profileId: profile.id,
+        assetId: parsed.data.assetId,
+        reason: parsed.data.reason,
+        confidence: parsed.data.confidence,
+        expectedProfit: parsed.data.expectedProfit,
+        riskLevel: parsed.data.riskLevel,
+        timeframe: parsed.data.timeframe,
+        status: parsed.data.status,
+        criteria: parsed.data.criteria || {},
+      },
+      include: { asset: true },
+    });
+
+    fastify.log.info(`Created trading suggestion: ${suggestion.asset.symbol} (${suggestion.status})`);
+
+    return reply.status(201).send(suggestion);
   });
 
   // POST /api/trading/suggestions/generate - Generate new suggestions via n8n

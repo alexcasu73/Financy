@@ -67,7 +67,16 @@ export class PortfolioService {
       };
     }
 
-    // No calibration - use raw market prices
+    // Get calibration factor from user settings
+    const userSettings = holdings[0]?.portfolio?.user?.settings;
+    const calibrationFactor = userSettings?.eurPriceAdjustmentFactor || 1.0;
+
+    this.fastify.log.info({
+      portfolioId,
+      calibrationFactor,
+      hasSettings: !!userSettings,
+      settingsValue: userSettings?.eurPriceAdjustmentFactor
+    }, "Portfolio calculation with calibration");
 
     // Collect unique currencies and fetch EUR rates for each
     const currencies = [...new Set(holdings.map((h) => h.asset.currency))];
@@ -94,12 +103,16 @@ export class PortfolioService {
 
       // EUR primary — avgBuyPrice is already stored in EUR
       // Calculate with full precision, round only final values
-      const currentPriceEurRaw = currency === "EUR"
+      let currentPriceEurRaw = currency === "EUR"
         ? currentPrice
         : currentPrice * fxRate;
-      const previousCloseEurRaw = currency === "EUR"
+      let previousCloseEurRaw = currency === "EUR"
         ? previousClose
         : previousClose * fxRate;
+
+      // Apply calibration factor to EUR prices
+      currentPriceEurRaw = currentPriceEurRaw * calibrationFactor;
+      previousCloseEurRaw = previousCloseEurRaw * calibrationFactor;
 
       // Round only display values with maximum precision
       const currentPriceEur = +currentPriceEurRaw.toFixed(8); // Keep 8 decimals for price
@@ -140,7 +153,7 @@ export class PortfolioService {
       };
     });
 
-    // Calculate weights based on EUR values
+    // Calculate weights based on calibrated EUR values (calibration already applied to prices)
     holdingData.forEach((h) => {
       h.weight = totalValueEur > 0 ? (h.currentValueEur / totalValueEur) * 100 : 0;
     });

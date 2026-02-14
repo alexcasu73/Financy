@@ -496,6 +496,22 @@ class ApiClient {
     return this.fetch<{ success: boolean }>(`/api/trading/suggestions/${id}/dismiss`, { method: "PUT" });
   }
 
+  async createTradingSuggestion(data: {
+    assetId: string;
+    reason: string;
+    confidence: "low" | "medium" | "high";
+    expectedProfit?: number;
+    riskLevel?: string;
+    timeframe?: string;
+    status: "pending" | "accepted" | "dismissed";
+    criteria?: any;
+  }) {
+    return this.fetch<any>("/api/trading/suggestions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
   // AI Advisor
   async searchInvestments(query: string) {
     return this.fetch<{

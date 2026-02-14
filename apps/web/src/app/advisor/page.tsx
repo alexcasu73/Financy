@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { formatCurrency, formatEur } from "@/lib/utils";
 import {
@@ -35,12 +42,42 @@ interface InvestmentSuggestion {
   timeHorizon?: string;
 }
 
+const STORAGE_KEY = 'ai-advisor-state';
+
 export default function AdvisorPage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<InvestmentSuggestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [usdToEur, setUsdToEur] = useState(0.92); // Default rate, will be updated
+  const [selectedAsset, setSelectedAsset] = useState<InvestmentSuggestion | null>(null);
+
+  // Load saved state on mount
+  useEffect(() => {
+    const savedState = localStorage.getItem(STORAGE_KEY);
+    if (savedState) {
+      try {
+        const { query: savedQuery, suggestions: savedSuggestions } = JSON.parse(savedState);
+        if (savedQuery) setQuery(savedQuery);
+        if (savedSuggestions && savedSuggestions.length > 0) {
+          setSuggestions(savedSuggestions);
+        }
+      } catch (e) {
+        console.error('Failed to load saved state:', e);
+      }
+    }
+  }, []);
+
+  // Save state when suggestions change
+  useEffect(() => {
+    if (suggestions.length > 0 || query) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        query,
+        suggestions,
+        timestamp: Date.now(),
+      }));
+    }
+  }, [query, suggestions]);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -66,12 +103,45 @@ export default function AdvisorPage() {
     }
   };
 
+  const handleClearResults = () => {
+    setQuery("");
+    setSuggestions([]);
+    setError(null);
+    localStorage.removeItem(STORAGE_KEY);
+  };
+
   const handleAddToPortfolio = async (assetId: string) => {
     try {
-      // TODO: Implementare aggiunta al portfolio
+      // TODO: Implementare dialog per scegliere portfolio, quantità, prezzo
       console.log("Adding to portfolio:", assetId);
+      alert("Funzionalità in arrivo: scegli portfolio, quantità e prezzo di acquisto");
     } catch (err: any) {
       alert(err.message || "Errore durante l'aggiunta al portfolio");
+    }
+  };
+
+  const handleAddToTrading = async (suggestion: InvestmentSuggestion) => {
+    try {
+      // Create TradingSuggestion with status="accepted" using API client
+      await api.createTradingSuggestion({
+        assetId: suggestion.id,
+        reason: suggestion.reason,
+        confidence: suggestion.score >= 80 ? "high" : suggestion.score >= 60 ? "medium" : "low",
+        expectedProfit: suggestion.expectedReturn,
+        riskLevel: suggestion.riskLevel,
+        timeframe: suggestion.timeHorizon,
+        status: "accepted", // Pre-accepted from AI Advisor
+        criteria: {
+          source: "ai-advisor",
+          aiScore: suggestion.score,
+          sector: suggestion.sector,
+        },
+      });
+
+      alert(`✅ ${suggestion.symbol} aggiunto al Trading!\n\nL'asset è stato aggiunto con status "Accettato" ed è pronto per essere analizzato dal sistema di trading.`);
+      setSelectedAsset(null); // Close dialog
+    } catch (err: any) {
+      alert(`❌ ${err.message || "Errore durante l'aggiunta al trading"}`);
     }
   };
 
@@ -176,6 +246,15 @@ export default function AdvisorPage() {
             <h2 className="text-xl font-semibold">
               Suggerimenti trovati ({suggestions.length})
             </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearResults}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              Nuova Ricerca
+            </Button>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -273,12 +352,10 @@ export default function AdvisorPage() {
                       variant="default"
                       size="sm"
                       className="flex-1"
-                      asChild
+                      onClick={() => setSelectedAsset(suggestion)}
                     >
-                      <a href={`/assets?symbol=${suggestion.symbol}`}>
-                        Dettagli
-                        <ArrowRight className="h-4 w-4 ml-1" />
-                      </a>
+                      Dettagli
+                      <ArrowRight className="h-4 w-4 ml-1" />
                     </Button>
                   </div>
                 </CardContent>
@@ -301,6 +378,127 @@ export default function AdvisorPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Asset Details Dialog */}
+      <Dialog open={!!selectedAsset} onOpenChange={(open) => !open && setSelectedAsset(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {selectedAsset && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3">
+                  <span className="text-2xl font-bold">{selectedAsset.symbol}</span>
+                  <Badge variant="outline">{selectedAsset.type}</Badge>
+                </DialogTitle>
+                <DialogDescription className="text-lg">
+                  {selectedAsset.name}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-6 mt-4">
+                {/* Price Section */}
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Prezzo Attuale</h3>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-3xl font-bold">
+                      {formatEur(convertToEur(selectedAsset.currentPrice, selectedAsset.currency))}
+                    </span>
+                    {selectedAsset.currency !== "EUR" && (
+                      <span className="text-lg text-muted-foreground">
+                        {formatCurrency(selectedAsset.currentPrice, selectedAsset.currency)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Asset Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm font-medium text-muted-foreground mb-1">Settore</h3>
+                    <p className="font-medium">{selectedAsset.sector}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-muted-foreground mb-1">Exchange</h3>
+                    <p className="font-medium">{selectedAsset.exchange}</p>
+                  </div>
+                </div>
+
+                {/* AI Analysis */}
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                    <Target className="h-4 w-4" />
+                    Analisi AI
+                  </h3>
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <p className="text-sm leading-relaxed">{selectedAsset.reason}</p>
+                  </div>
+                </div>
+
+                {/* Metrics */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <div className="text-sm text-muted-foreground mb-1">Score</div>
+                    <div className="text-2xl font-bold">{selectedAsset.score}/100</div>
+                  </div>
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <div className="text-sm text-muted-foreground mb-1">Rischio</div>
+                    <Badge className={getRiskColor(selectedAsset.riskLevel)}>
+                      {getRiskLabel(selectedAsset.riskLevel)}
+                    </Badge>
+                  </div>
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <div className="text-sm text-muted-foreground mb-1">Orizzonte</div>
+                    <div className="text-lg font-semibold capitalize">{selectedAsset.timeHorizon || 'N/A'}</div>
+                  </div>
+                </div>
+
+                {selectedAsset.expectedReturn && (
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                      <TrendingUp className="h-5 w-5" />
+                      <span className="font-medium">Rendimento Atteso</span>
+                    </div>
+                    <p className="text-2xl font-bold text-green-800 dark:text-green-300 mt-1">
+                      +{selectedAsset.expectedReturn}% annuo
+                    </p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => handleAddToPortfolio(selectedAsset.id)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Aggiungi al Portfolio
+                    </Button>
+                    <Button
+                      variant="default"
+                      className="flex-1"
+                      onClick={() => handleAddToTrading(selectedAsset)}
+                    >
+                      <TrendingUp className="h-4 w-4 mr-2" />
+                      Aggiungi in Trading
+                    </Button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    className="w-full"
+                    asChild
+                  >
+                    <a href={`/assets?symbol=${selectedAsset.symbol}`}>
+                      Vai agli Asset
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
